@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-background: #09090B;
+  --color-surface: #09090B;
+  --color-surface-2: #18181B;
+  --color-muted: #27272A;
+  --color-foreground: #FAFAFA;
+  --color-muted-foreground: #A1A1AA;
+  --color-accent: #DFE104;
+  --color-accent-foreground: #000000;
+  --color-border: #3F3F46;
+}
+
+html {
+  color-scheme: dark;
+  background-color: var(--color-background);
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  min-height: 100vh;
+  font-family: 'Space Grotesk', Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+  background-color: var(--color-background);
+}
+
+*:focus-visible:not(input):not(textarea):not(select) {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-accent);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: var(--color-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-muted);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-border);
+}
+
+@layer components {
+  .kinetic-label {
+    @apply text-xs font-bold uppercase tracking-tight text-muted-foreground;
+  }
+
+  .kinetic-heading {
+    @apply font-bold uppercase tracking-tighter text-foreground;
+  }
+
+  .kinetic-input {
+    @apply w-full border-b-2 border-border bg-surface-2 px-3 py-3 text-base text-foreground transition-colors duration-150;
+  }
+
+  .kinetic-input:focus {
+    border-color: var(--color-accent);
+  }
+
+  .kinetic-input::placeholder {
+    color: var(--color-muted-foreground);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
