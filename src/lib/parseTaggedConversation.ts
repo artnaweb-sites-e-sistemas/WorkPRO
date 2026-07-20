@@ -145,8 +145,8 @@ export function parseTaggedConversation(
     }
 
     const parsed = timeLabel ? parseWorkanaRelativeTime(timeLabel, now) : null
-    const createdAt =
-      parsed ?? (lastTime ? new Date(lastTime.getTime() + 1000) : new Date(now))
+    const createdAt: Date =
+      parsed ?? (lastTime ? new Date(lastTime.getTime() + 1000) : new Date(now.getTime()))
 
     lastTime = createdAt
 
