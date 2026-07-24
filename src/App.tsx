@@ -6,6 +6,7 @@ import { PageTransition } from './components/PageTransition'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import ConversationView from './pages/ConversationView'
+import NewProposal from './pages/NewProposal'
 
 export default function App() {
   return (
@@ -37,6 +38,26 @@ export default function App() {
                 <ProtectedRoute>
                   <PageTransition>
                     <ConversationView />
+                  </PageTransition>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/proposta"
+              element={
+                <ProtectedRoute>
+                  <PageTransition>
+                    <NewProposal />
+                  </PageTransition>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/proposta/:id"
+              element={
+                <ProtectedRoute>
+                  <PageTransition>
+                    <NewProposal />
                   </PageTransition>
                 </ProtectedRoute>
               }

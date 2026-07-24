@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ConversationCard } from '../components/ConversationCard'
 import { NewConversationModal } from '../components/NewConversationModal'
@@ -119,6 +120,7 @@ function SearchIcon() {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const { user, logout } = useAuth()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
@@ -247,9 +249,14 @@ export default function Dashboard() {
               {conversations.length} lead{conversations.length !== 1 ? 's' : ''} no total
             </p>
           </div>
-          <Button onClick={() => setModalOpen(true)} size="lg" className="relative z-10">
-            + Nova conversa
-          </Button>
+          <div className="relative z-10 flex flex-wrap items-center gap-3">
+            <Button onClick={() => setModalOpen(true)} size="lg">
+              + Nova conversa
+            </Button>
+            <Button variant="secondary" size="lg" onClick={() => navigate('/proposta')}>
+              Nova proposta
+            </Button>
+          </div>
         </div>
 
         {conversations.length > 0 && (
