@@ -1,6 +1,7 @@
 import { motion, useReducedMotion } from 'framer-motion'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { cn } from '../../lib/cn'
+import { Spinner } from './Spinner'
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success'
 type ButtonSize = 'sm' | 'md' | 'lg'
@@ -70,7 +71,14 @@ export function Button({
       disabled={disabled || loading}
       {...(props as object)}
     >
-      {loading ? 'Carregando...' : children}
+      {loading ? (
+        <>
+          <Spinner size="sm" className="text-current" label="Carregando" />
+          <span>Carregando...</span>
+        </>
+      ) : (
+        children
+      )}
     </motion.button>
   )
 }

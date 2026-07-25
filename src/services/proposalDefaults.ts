@@ -9,6 +9,7 @@ const DEFAULT_PROPOSAL_DEFAULTS: ProposalDefaults = {
   companyName: '',
   companyAbout: '',
   professionalName: '',
+  websiteUrl: '',
   tagline: 'Desenvolvimento web & sistemas',
 }
 
@@ -40,6 +41,8 @@ function mergeWithDefaults(data: Record<string, unknown>): ProposalDefaults {
       typeof data.professionalName === 'string'
         ? data.professionalName
         : DEFAULT_PROPOSAL_DEFAULTS.professionalName,
+    websiteUrl:
+      typeof data.websiteUrl === 'string' ? data.websiteUrl : DEFAULT_PROPOSAL_DEFAULTS.websiteUrl,
     tagline:
       typeof data.tagline === 'string' && data.tagline.trim()
         ? data.tagline

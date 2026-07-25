@@ -14,11 +14,11 @@ function installmentChannelLabel(kind: 'boleto' | 'cartao' | null): string {
 function formatRecurrenceStartPhrase(timing: RecurrenceStartTiming): string {
   switch (timing) {
     case 'ato_contratacao':
-      return 'iniciando no ato da contratação'
+      return 'a partir da contratação'
     case 'logo_apos_entrega':
-      return 'iniciando logo após a entrega'
+      return 'a partir da entrega'
     case '30_dias_apos_entrega':
-      return 'iniciando 30 dias após a entrega'
+      return 'a partir de 30 dias após a entrega'
   }
 }
 
@@ -29,19 +29,19 @@ export function buildPaymentNote(input: ProposalFormInput): string {
   let note: string
 
   if (payment.method === 'avista') {
-    note = `Pagamento integral de ${total} no início do projeto.`
+    note = `${total} à vista, na contratação.`
   } else if (payment.method === 'metade') {
     const first = Math.round(amountCents / 2)
     const second = amountCents - first
-    note = `50% no início do projeto (${formatCurrencyBRL(first)}) e 50% em 30 dias (${formatCurrencyBRL(second)}).`
+    note = `${formatCurrencyBRL(first)} na contratação e ${formatCurrencyBRL(second)} em 30 dias.`
   } else {
     const n = payment.installments ?? 3
     const parcela = Math.floor(amountCents / n)
-    note = `Parcelado em ${n}x de ${formatCurrencyBRL(parcela)} ${installmentChannelLabel(payment.installmentKind)}.`
+    note = `${n}x de ${formatCurrencyBRL(parcela)} ${installmentChannelLabel(payment.installmentKind)}.`
   }
 
   if (recurrence.enabled && recurrence.amountCents != null && recurrence.startTiming) {
-    note += ` Recorrência de ${formatCurrencyBRL(recurrence.amountCents)} por mês ${formatRecurrenceStartPhrase(recurrence.startTiming)}.`
+    note += `\n${formatCurrencyBRL(recurrence.amountCents)}/mês, ${formatRecurrenceStartPhrase(recurrence.startTiming)}.`
   }
 
   return note

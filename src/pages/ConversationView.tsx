@@ -35,7 +35,7 @@ import {
   serializeMeetingScriptSlots,
 } from '../lib/meetingScript'
 import { cn } from '../lib/cn'
-import { Button, Dialog } from '../components/ui'
+import { Button, Dialog, Spinner } from '../components/ui'
 import { badgeBaseClassName } from '../components/ui/Badge'
 
 const headerIconClass = 'h-4 w-4 shrink-0'
@@ -430,7 +430,7 @@ export default function ConversationView() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="inline-block h-8 w-8 animate-spin border-2 border-accent border-t-transparent" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -689,7 +689,7 @@ export default function ConversationView() {
 
         {proposalLoading && (
           <div className="flex items-center justify-center py-12">
-            <span className="inline-block h-8 w-8 animate-spin border-2 border-accent border-t-transparent" />
+            <Spinner size="lg" />
           </div>
         )}
 
@@ -767,7 +767,7 @@ export default function ConversationView() {
 
         {meetingLoading && (
           <div className="flex items-center justify-center py-12">
-            <span className="inline-block h-8 w-8 animate-spin border-2 border-accent border-t-transparent" />
+            <Spinner size="lg" />
           </div>
         )}
 

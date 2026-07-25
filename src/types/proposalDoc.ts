@@ -1,7 +1,10 @@
 import type { Timestamp } from 'firebase/firestore'
 
+export type ProposalStatus = 'ativo' | 'fechado' | 'perdido'
+
 export type PaymentMethod = 'avista' | 'metade' | 'parcelado'
 export type InstallmentKind = 'boleto' | 'cartao'
+
 
 export type RecurrenceStartTiming =
   | 'ato_contratacao'
@@ -33,7 +36,9 @@ export interface ProposalDefaults {
   companyName: string
   companyAbout: string
   professionalName: string
-  /** linha sob o logo na capa. Default: 'Desenvolvimento web & sistemas' */
+  /** site da empresa — aparece acima da linha do rodapé, à direita */
+  websiteUrl: string
+  /** linha sob o logo na capa e título na lista. Default: 'Desenvolvimento web & sistemas' */
   tagline: string
 }
 
@@ -44,6 +49,8 @@ export interface ProposalFormInput {
   tagline: string
   logoDataUrl: string
   markDataUrl: string
+  /** site da empresa (opcional) */
+  websiteUrl: string
   /** janela de contexto: o que o usuário escreve sobre o projeto */
   projectContext: string
   /** valor total do projeto, em centavos */
@@ -84,6 +91,7 @@ export interface ProposalDoc {
   ownerUid: string
   input: ProposalFormInput
   content: ProposalContentDoc
+  status: ProposalStatus
   createdAt: Timestamp
   updatedAt: Timestamp
 }

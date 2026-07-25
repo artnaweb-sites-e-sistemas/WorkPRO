@@ -25,8 +25,8 @@ o layout. Conte os caracteres antes de responder e reescreva se passar.
   legado). Quando preencher: MÁXIMO 420 caracteres, explicando o que precisa ser
   liberado, por quem, e que sem isso escopo, prazo e valor são reestruturados.
   Se o contexto não menciona nada disso, é null. Não invente pré-requisito.
-- howItWorks: de 3 a 5 etapas. stage MÁXIMO 16 caracteres (uma palavra, ex: "Catálogo",
-  "Sessões", "Checkout", "Manutenção"). description MÁXIMO 120 caracteres.
+- howItWorks: de 3 a 5 etapas. stage MÁXIMO 22 caracteres (uma ou duas palavras,
+  ex: "Catálogo", "Desenvolvimento", "Checkout", "Manutenção"). description MÁXIMO 120 caracteres.
 - setupLabel: rótulo da linha de investimento do projeto. MÁXIMO 60 caracteres.
   Ex: "Desenvolvimento da plataforma (setup)"
 - recurringLabel: rótulo da linha de recorrência mensal. MÁXIMO 70 caracteres.
@@ -133,7 +133,7 @@ function parseProposalAiContent(raw: string): ProposalAiContent {
               typeof (item as { description?: unknown }).description === 'string',
           )
           .map((item) => ({
-            stage: hardTruncate(item.stage, 16),
+            stage: hardTruncate(item.stage, 22),
             description: hardTruncate(item.description, 120),
           }))
           .slice(0, 5)

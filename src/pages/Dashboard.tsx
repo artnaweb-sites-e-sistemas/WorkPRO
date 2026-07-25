@@ -1,22 +1,28 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ConversationCard } from '../components/ConversationCard'
+import { ProposalCard } from '../components/ProposalCard'
 import { NewConversationModal } from '../components/NewConversationModal'
 import { ProfileSettingsModal } from '../components/ProfileSettingsModal'
 import { useAuth } from '../context/AuthContext'
 import { listConversations } from '../services/conversations'
+import { listProposals } from '../services/proposals'
 import type { Conversation, ConversationStatus, Stage } from '../types/models'
-import { matchesConversationSearch } from '../lib/search'
+import type { ProposalDoc, ProposalStatus } from '../types/proposalDoc'
+import { matchesConversationSearch, matchesProposalSearch } from '../lib/search'
 import { staggerContainer, staggerItem } from '../lib/motion'
 import { cn } from '../lib/cn'
-import { Button, Card } from '../components/ui'
+import { Button, Card, Spinner } from '../components/ui'
 
 type StatusFilter = ConversationStatus | 'todos'
 type DashboardStageFilter = Exclude<Stage, 'videocall'>
 type StageFilter = DashboardStageFilter | 'todos'
+type HomeSection = 'conversas' | 'propostas'
+type ProposalStatusFilter = ProposalStatus | 'todos'
 
 const PAGE_SIZE = 5
+const PROPOSAL_PAGE_SIZE = 5
 
 const STAGE_FILTER_OPTIONS: { value: DashboardStageFilter; label: string }[] = [
   { value: 'abordagem', label: 'Abordagem' },
@@ -121,20 +127,56 @@ function SearchIcon() {
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user, logout } = useAuth()
+  const initialSection: HomeSection =
+    searchParams.get('tab') === 'propostas' ? 'propostas' : 'conversas'
+  const [homeSection, setHomeSection] = useState<HomeSection>(initialSection)
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const [proposals, setProposals] = useState<ProposalDoc[]>([])
   const [loading, setLoading] = useState(true)
+  const [proposalsLoading, setProposalsLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [proposalsError, setProposalsError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
+  const [proposalStatusFilter, setProposalStatusFilter] =
+    useState<ProposalStatusFilter>('todos')
   const [stageFilter, setStageFilter] = useState<StageFilter>('todos')
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
+  const [proposalPage, setProposalPage] = useState(1)
 
   useEffect(() => {
     setCurrentPage(1)
   }, [statusFilter, stageFilter, searchQuery])
+
+  useEffect(() => {
+    setProposalPage(1)
+  }, [searchQuery, proposalStatusFilter])
+
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab === 'propostas' || tab === 'conversas') {
+      setHomeSection(tab)
+    }
+  }, [searchParams])
+
+  function handleHomeSectionChange(section: HomeSection) {
+    setHomeSection(section)
+    if (section === 'propostas') {
+      setSearchParams({ tab: 'propostas' }, { replace: true })
+    } else {
+      setSearchParams({}, { replace: true })
+    }
+  }
+
+  useEffect(() => {
+    setProposalPage(1)
+    setSearchQuery('')
+    setProposalStatusFilter('todos')
+  }, [homeSection])
 
   useEffect(() => {
     const unsubscribe = listConversations(
@@ -152,6 +194,39 @@ export default function Dashboard() {
 
     return unsubscribe
   }, [])
+
+  useEffect(() => {
+    if (homeSection !== 'propostas') {
+      return
+    }
+
+    let cancelled = false
+    setProposalsLoading(true)
+    setProposalsError(null)
+
+    void listProposals()
+      .then((items) => {
+        if (cancelled) {
+          return
+        }
+        setProposals(items)
+      })
+      .catch((error) => {
+        console.error('[Dashboard] listProposals error:', error)
+        if (!cancelled) {
+          setProposalsError(error instanceof Error ? error.message : 'Erro ao carregar propostas')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setProposalsLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [homeSection])
 
   const statusFiltered = useMemo(() => {
     if (statusFilter === 'todos') {
@@ -191,11 +266,44 @@ export default function Dashboard() {
     return filteredConversations.slice(start, start + PAGE_SIZE)
   }, [filteredConversations, safePage])
 
+  const filteredProposals = useMemo(() => {
+    const byStatus =
+      proposalStatusFilter === 'todos'
+        ? proposals
+        : proposals.filter((proposal) => proposal.status === proposalStatusFilter)
+
+    if (!searchQuery.trim()) {
+      return byStatus
+    }
+
+    return byStatus.filter((proposal) =>
+      matchesProposalSearch(
+        proposal.input.tagline || proposal.input.companyName,
+        proposal.content.projectTitle,
+        searchQuery,
+      ),
+    )
+  }, [proposals, searchQuery, proposalStatusFilter])
+
+  const proposalTotalPages = Math.max(1, Math.ceil(filteredProposals.length / PROPOSAL_PAGE_SIZE))
+  const safeProposalPage = Math.min(proposalPage, proposalTotalPages)
+
+  const paginatedProposals = useMemo(() => {
+    const start = (safeProposalPage - 1) * PROPOSAL_PAGE_SIZE
+    return filteredProposals.slice(start, start + PROPOSAL_PAGE_SIZE)
+  }, [filteredProposals, safeProposalPage])
+
   useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages)
     }
   }, [currentPage, totalPages])
+
+  useEffect(() => {
+    if (proposalPage > proposalTotalPages) {
+      setProposalPage(proposalTotalPages)
+    }
+  }, [proposalPage, proposalTotalPages])
 
   const statusTabs: { value: StatusFilter; label: string }[] = [
     { value: 'todos', label: 'Todas' },
@@ -204,9 +312,20 @@ export default function Dashboard() {
     { value: 'perdido', label: 'Perdidas' },
   ]
 
+  const proposalStatusTabs: { value: ProposalStatusFilter; label: string }[] = [
+    { value: 'todos', label: 'Todas' },
+    { value: 'ativo', label: 'Ativas' },
+    { value: 'fechado', label: 'Fechadas' },
+    { value: 'perdido', label: 'Perdidas' },
+  ]
+
   const hasSearch = searchQuery.trim().length > 0
-  const leadCountDisplay = String(conversations.length).padStart(2, '0')
+  const isProposals = homeSection === 'propostas'
+  const leadCountDisplay = String(
+    isProposals ? proposals.length : conversations.length,
+  ).padStart(2, '0')
   const showPagination = filteredConversations.length > PAGE_SIZE
+  const showProposalPagination = filteredProposals.length > PROPOSAL_PAGE_SIZE
 
   function handleStageFilterChange(value: DashboardStageFilter) {
     setStageFilter((current) => (current === value ? 'todos' : value))
@@ -234,6 +353,29 @@ export default function Dashboard() {
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-10">
+        <div className="relative z-10 mb-6 flex flex-wrap gap-2">
+          {(
+            [
+              { value: 'conversas' as const, label: 'Conversas' },
+              { value: 'propostas' as const, label: 'Propostas' },
+            ] as const
+          ).map((section) => (
+            <button
+              key={section.value}
+              type="button"
+              onClick={() => handleHomeSectionChange(section.value)}
+              className={cn(
+                'min-h-touch border-2 px-4 py-2 text-xs font-bold uppercase tracking-tight transition-colors duration-150',
+                homeSection === section.value
+                  ? 'border-accent bg-accent text-accent-foreground'
+                  : 'border-border bg-transparent text-muted-foreground hover:text-accent',
+              )}
+            >
+              {section.label}
+            </button>
+          ))}
+        </div>
+
         <div className="relative flex flex-wrap items-end justify-between gap-6">
           <span
             aria-hidden="true"
@@ -243,23 +385,28 @@ export default function Dashboard() {
           </span>
           <div className="relative z-10">
             <h2 className="text-4xl font-bold uppercase tracking-tighter text-foreground">
-              Conversas
+              {isProposals ? 'Propostas' : 'Conversas'}
             </h2>
             <p className="mt-2 text-base normal-case text-muted-foreground">
-              {conversations.length} lead{conversations.length !== 1 ? 's' : ''} no total
+              {isProposals
+                ? `${proposals.length} proposta${proposals.length !== 1 ? 's' : ''} no total`
+                : `${conversations.length} lead${conversations.length !== 1 ? 's' : ''} no total`}
             </p>
           </div>
           <div className="relative z-10 flex flex-wrap items-center gap-3">
-            <Button onClick={() => setModalOpen(true)} size="lg">
-              + Nova conversa
-            </Button>
-            <Button variant="secondary" size="lg" onClick={() => navigate('/proposta')}>
-              Nova proposta
-            </Button>
+            {isProposals ? (
+              <Button size="lg" onClick={() => navigate('/proposta')}>
+                + Nova proposta
+              </Button>
+            ) : (
+              <Button onClick={() => setModalOpen(true)} size="lg">
+                + Nova conversa
+              </Button>
+            )}
           </div>
         </div>
 
-        {conversations.length > 0 && (
+        {!isProposals && conversations.length > 0 && (
           <>
             <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap gap-2">
@@ -315,9 +462,122 @@ export default function Dashboard() {
           </>
         )}
 
-        {loading ? (
+        {isProposals && proposals.length > 0 && (
+          <>
+            <div className="mt-8 flex flex-wrap gap-2">
+              {proposalStatusTabs.map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  onClick={() => setProposalStatusFilter(tab.value)}
+                  className={cn(
+                    'min-h-touch border-2 px-4 py-2 text-xs font-bold uppercase tracking-tight transition-colors duration-150',
+                    proposalStatusFilter === tab.value
+                      ? 'border-accent bg-accent text-accent-foreground'
+                      : 'border-border bg-transparent text-muted-foreground hover:text-accent',
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative mt-5">
+              <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2">
+                <SearchIcon />
+              </span>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Buscar por empresa ou título..."
+                className="min-h-touch w-full border-2 border-border bg-surface-2 py-3 pl-10 pr-4 text-sm normal-case text-foreground transition-colors duration-150 placeholder:text-muted-foreground focus:border-accent focus:outline-none"
+              />
+            </div>
+          </>
+        )}
+
+        {isProposals ? (
+          proposalsLoading ? (
+            <div className="mt-16 flex justify-center">
+              <Spinner size="lg" />
+            </div>
+          ) : proposalsError ? (
+            <p className="mt-16 border-2 border-status-error px-4 py-3 text-base normal-case text-status-error">
+              Erro ao carregar propostas: {proposalsError}
+            </p>
+          ) : proposals.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="relative mt-16"
+            >
+              <Card padding="lg" className="relative z-10 text-center">
+                <h3 className="text-2xl font-bold uppercase tracking-tighter text-foreground">
+                  Nenhuma proposta ainda
+                </h3>
+                <p className="mx-auto mt-4 max-w-md text-base normal-case leading-relaxed text-muted-foreground">
+                  Monte uma proposta comercial em PDF com o seu template e salve para reabrir
+                  depois.
+                </p>
+                <Button size="lg" className="mt-8" onClick={() => navigate('/proposta')}>
+                  Criar primeira proposta
+                </Button>
+              </Card>
+            </motion.div>
+          ) : filteredProposals.length === 0 && hasSearch ? (
+            <p className="mt-16 text-center text-base normal-case text-muted-foreground">
+              Nenhuma proposta encontrada para &lsquo;{searchQuery.trim()}&rsquo;
+            </p>
+          ) : filteredProposals.length === 0 ? (
+            <p className="mt-16 text-center text-base normal-case text-muted-foreground">
+              Nenhuma proposta com este filtro.
+            </p>
+          ) : (
+            <>
+              <motion.ul
+                variants={staggerContainer}
+                initial="hidden"
+                animate="visible"
+                className="mt-8 space-y-4"
+              >
+                {paginatedProposals.map((proposal) => (
+                  <motion.li key={proposal.id} variants={staggerItem}>
+                    <ProposalCard proposal={proposal} />
+                  </motion.li>
+                ))}
+              </motion.ul>
+
+              {showProposalPagination && (
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-3 border-2 border-border bg-surface px-4 py-3">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setProposalPage((page) => Math.max(1, page - 1))}
+                    disabled={safeProposalPage <= 1}
+                  >
+                    Anterior
+                  </Button>
+                  <span className="px-2 text-xs font-bold uppercase tracking-tight text-muted-foreground">
+                    Página {safeProposalPage} de {proposalTotalPages}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      setProposalPage((page) => Math.min(proposalTotalPages, page + 1))
+                    }
+                    disabled={safeProposalPage >= proposalTotalPages}
+                  >
+                    Próxima
+                  </Button>
+                </div>
+              )}
+            </>
+          )
+        ) : loading ? (
           <div className="mt-16 flex justify-center">
-            <span className="inline-block h-8 w-8 animate-spin border-2 border-accent border-t-transparent" />
+            <Spinner size="lg" />
           </div>
         ) : loadError ? (
           <p className="mt-16 border-2 border-status-error px-4 py-3 text-base normal-case text-status-error">

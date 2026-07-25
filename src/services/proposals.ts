@@ -15,6 +15,7 @@ import type {
   ProposalContentDoc,
   ProposalDoc,
   ProposalFormInput,
+  ProposalStatus,
 } from '../types/proposalDoc'
 
 function requireUserUid(): string {
@@ -33,12 +34,20 @@ function proposalRef(uid: string, id: string) {
   return doc(db, 'users', uid, 'proposals', id)
 }
 
+function parseStatus(value: unknown): ProposalStatus {
+  if (value === 'fechado' || value === 'perdido' || value === 'ativo') {
+    return value
+  }
+  return 'ativo'
+}
+
 function docToProposal(id: string, data: Record<string, unknown>): ProposalDoc {
   return {
     id,
     ownerUid: data.ownerUid as string,
     input: data.input as ProposalFormInput,
     content: data.content as ProposalContentDoc,
+    status: parseStatus(data.status),
     createdAt: data.createdAt as ProposalDoc['createdAt'],
     updatedAt: data.updatedAt as ProposalDoc['updatedAt'],
   }
@@ -54,6 +63,7 @@ export async function createProposal(
     ownerUid,
     input,
     content,
+    status: 'ativo' satisfies ProposalStatus,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -63,7 +73,11 @@ export async function createProposal(
 
 export async function updateProposal(
   id: string,
-  partial: { input?: ProposalFormInput; content?: ProposalContentDoc },
+  partial: {
+    input?: ProposalFormInput
+    content?: ProposalContentDoc
+    status?: ProposalStatus
+  },
 ): Promise<void> {
   const uid = requireUserUid()
 
@@ -71,6 +85,13 @@ export async function updateProposal(
     ...partial,
     updatedAt: serverTimestamp(),
   })
+}
+
+export async function updateProposalStatus(
+  id: string,
+  status: ProposalStatus,
+): Promise<void> {
+  await updateProposal(id, { status })
 }
 
 export async function getProposal(id: string): Promise<ProposalDoc | null> {

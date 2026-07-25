@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { PDFViewer, pdf } from '@react-pdf/renderer'
+import { pdf } from '@react-pdf/renderer'
 import {
   generateProposalAiContent,
   regenerateProposalAiContent,
 } from '../ai/generateProposalDoc'
-import { Button, Card, Dialog, Input, Switch, Textarea } from '../components/ui'
+import { ProposalContentEditor } from '../components/ProposalContentEditor'
+import { ProposalPdfPagedPreview } from '../components/ProposalPdfPagedPreview'
+import { ProposalStatusSelector } from '../components/ProposalStatusSelector'
+import { Button, Card, Input, Switch, Textarea, DownloadIcon, Spinner } from '../components/ui'
 import { formatCurrencyBRL, maskCurrencyBRLInput, parseCurrencyBRL } from '../lib/currencyBRL'
-import { formatRelativeTime } from '../lib/formatRelativeTime'
-import { fileToLogoDataUrl } from '../lib/logoImage'
+import { fileToLogoDataUrl, fileToMarkDataUrl } from '../lib/logoImage'
 import { buildProposalContent } from '../lib/proposalTerms'
 import { ProposalPdfDocument } from '../pdf/ProposalPdfDocument'
 import {
@@ -17,18 +19,18 @@ import {
   getProposalDefaults,
   saveProposalDefaults,
 } from '../services/proposalDefaults'
-import { createProposal, getProposal, listProposals, updateProposal } from '../services/proposals'
+import { createProposal, getProposal, updateProposal } from '../services/proposals'
 import type {
   InstallmentKind,
   PaymentMethod,
   ProposalAiContent,
   ProposalContentDoc,
   ProposalDefaults,
-  ProposalDoc,
   ProposalFormInput,
   ProposalPaymentTerms,
   ProposalRecurrence,
   RecurrenceStartTiming,
+  ProposalStatus,
 } from '../types/proposalDoc'
 import { RECURRENCE_START_TIMING_OPTIONS } from '../types/proposalDoc'
 
@@ -80,6 +82,7 @@ function buildInputFromState(params: {
     tagline: params.defaults.tagline || 'Desenvolvimento web & sistemas',
     logoDataUrl: params.defaults.logoDataUrl,
     markDataUrl: params.defaults.markDataUrl,
+    websiteUrl: params.defaults.websiteUrl.trim(),
     projectContext: params.projectContext,
     amountCents: params.amountCents,
     payment: params.payment,
@@ -116,7 +119,9 @@ export default function NewProposal() {
   const logoInputRef = useRef<HTMLInputElement>(null)
   const markInputRef = useRef<HTMLInputElement>(null)
   const defaultsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const proposalSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const defaultsHydrated = useRef(false)
+  const skipProposalPersist = useRef(true)
 
   const [defaults, setDefaults] = useState<ProposalDefaults>(DEFAULT_PROPOSAL_DEFAULTS)
   const [projectContext, setProjectContext] = useState('')
@@ -132,6 +137,7 @@ export default function NewProposal() {
   const [markError, setMarkError] = useState('')
 
   const [proposalId, setProposalId] = useState<string | null>(routeId ?? null)
+  const [proposalStatus, setProposalStatus] = useState<ProposalStatus>('ativo')
   const [content, setContent] = useState<ProposalContentDoc | null>(null)
   const [aiContent, setAiContent] = useState<ProposalAiContent | null>(null)
 
@@ -142,10 +148,8 @@ export default function NewProposal() {
   const [generateError, setGenerateError] = useState('')
   const [regenerateError, setRegenerateError] = useState('')
   const [adjustment, setAdjustment] = useState('')
-
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [historyItems, setHistoryItems] = useState<ProposalDoc[]>([])
+  const [editMode, setEditMode] = useState(false)
+  const [savingEdits, setSavingEdits] = useState(false)
 
   const payment: ProposalPaymentTerms = useMemo(
     () => ({
@@ -180,8 +184,58 @@ export default function NewProposal() {
     [defaults, projectContext, amountCents, payment, recurrence, validityDays],
   )
 
+  /** Conteúdo exibido no PDF: textos da IA + termos recalculados do formulário. */
+  const previewContent = useMemo(() => {
+    if (!content) {
+      return null
+    }
+    const ai = aiContent ?? extractAiContent(content)
+    return buildProposalContent(formInput, ai)
+  }, [content, aiContent, formInput])
+
   const pendingMessage = getPendingMessage(formInput)
   const canGenerate = !pendingMessage && !generating && !loadingDoc
+
+  // Após gerar: qualquer ajuste do formulário atualiza o PDF e salva a proposta
+  useEffect(() => {
+    if (!proposalId || loadingDoc || generating) {
+      return
+    }
+
+    const ai = aiContent ?? (content ? extractAiContent(content) : null)
+    if (!ai) {
+      return
+    }
+
+    if (skipProposalPersist.current) {
+      skipProposalPersist.current = false
+      return
+    }
+
+    if (proposalSaveTimer.current) {
+      clearTimeout(proposalSaveTimer.current)
+    }
+
+    const built = buildProposalContent(formInput, ai)
+
+    proposalSaveTimer.current = setTimeout(() => {
+      void updateProposal(proposalId, { input: formInput, content: built })
+        .then(() => {
+          setContent(built)
+        })
+        .catch((error) => {
+          console.error('[NewProposal] persistProposal', error)
+        })
+    }, 700)
+
+    return () => {
+      if (proposalSaveTimer.current) {
+        clearTimeout(proposalSaveTimer.current)
+      }
+    }
+    // content só entra para extrair AI na 1ª vez; mudanças de texto vêm de aiContent/formInput
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- evita loop ao setContent
+  }, [proposalId, formInput, aiContent, loadingDoc, generating])
 
   const persistDefaults = useCallback((next: ProposalDefaults) => {
     if (defaultsSaveTimer.current) {
@@ -194,6 +248,30 @@ export default function NewProposal() {
       })
     }, 600)
   }, [])
+
+  const syncProposalBranding = useCallback(
+    async (nextDefaults: ProposalDefaults) => {
+      if (!proposalId) {
+        return
+      }
+
+      const input = buildInputFromState({
+        defaults: nextDefaults,
+        projectContext,
+        amountCents: parseCurrencyBRL(amountDisplay),
+        payment,
+        recurrence,
+        validityDays,
+      })
+
+      try {
+        await updateProposal(proposalId, { input })
+      } catch (error) {
+        console.error('[NewProposal] syncProposalBranding', error)
+      }
+    },
+    [proposalId, projectContext, amountDisplay, payment, recurrence, validityDays],
+  )
 
   const updateDefaults = useCallback(
     (partial: Partial<ProposalDefaults>) => {
@@ -209,6 +287,11 @@ export default function NewProposal() {
   )
 
   useEffect(() => {
+    // Com proposta na URL, a hidratação fica a cargo do efeito do documento
+    if (routeId) {
+      return
+    }
+
     let cancelled = false
 
     void getProposalDefaults().then((loaded) => {
@@ -225,7 +308,7 @@ export default function NewProposal() {
         clearTimeout(defaultsSaveTimer.current)
       }
     }
-  }, [])
+  }, [routeId])
 
   useEffect(() => {
     if (!routeId) {
@@ -236,8 +319,8 @@ export default function NewProposal() {
     let cancelled = false
     setLoadingDoc(true)
 
-    void getProposal(routeId)
-      .then((doc) => {
+    void Promise.all([getProposal(routeId), getProposalDefaults()])
+      .then(([doc, savedDefaults]) => {
         if (cancelled) {
           return
         }
@@ -248,14 +331,18 @@ export default function NewProposal() {
         }
 
         defaultsHydrated.current = false
-        setDefaults({
-          logoDataUrl: doc.input.logoDataUrl,
-          markDataUrl: doc.input.markDataUrl ?? '',
-          companyName: doc.input.companyName,
-          companyAbout: doc.input.companyAbout,
-          professionalName: doc.input.professionalName,
-          tagline: doc.input.tagline,
-        })
+
+        const mergedDefaults: ProposalDefaults = {
+          logoDataUrl: doc.input.logoDataUrl || savedDefaults.logoDataUrl,
+          markDataUrl: doc.input.markDataUrl || savedDefaults.markDataUrl,
+          companyName: doc.input.companyName || savedDefaults.companyName,
+          companyAbout: doc.input.companyAbout || savedDefaults.companyAbout,
+          professionalName: doc.input.professionalName || savedDefaults.professionalName,
+          websiteUrl: doc.input.websiteUrl || savedDefaults.websiteUrl,
+          tagline: doc.input.tagline || savedDefaults.tagline,
+        }
+
+        setDefaults(mergedDefaults)
         setProjectContext(doc.input.projectContext)
         setAmountDisplay(doc.input.amountCents > 0 ? formatCurrencyBRL(doc.input.amountCents) : '')
         setPaymentMethod(doc.input.payment.method)
@@ -273,11 +360,28 @@ export default function NewProposal() {
         setStartTiming(normalizedRecurrence.startTiming ?? 'ato_contratacao')
         setValidityDays(doc.input.validityDays > 0 ? doc.input.validityDays : 15)
         setProposalId(doc.id)
+        setProposalStatus(doc.status ?? 'ativo')
         setContent(doc.content)
         setAiContent(extractAiContent(doc.content))
         setLoadingDoc(false)
+        skipProposalPersist.current = true
 
-        // Reabilita auto-save dos defaults após hidratar a proposta
+        // Backfill: proposta antiga sem símbolo, mas defaults já têm
+        const needsBrandSync =
+          (!doc.input.markDataUrl && mergedDefaults.markDataUrl) ||
+          (!doc.input.logoDataUrl && mergedDefaults.logoDataUrl)
+
+        if (needsBrandSync) {
+          const input = {
+            ...doc.input,
+            logoDataUrl: mergedDefaults.logoDataUrl,
+            markDataUrl: mergedDefaults.markDataUrl,
+          }
+          void updateProposal(doc.id, { input }).catch((error) => {
+            console.error('[NewProposal] backfill branding', error)
+          })
+        }
+
         queueMicrotask(() => {
           defaultsHydrated.current = true
         })
@@ -306,7 +410,16 @@ export default function NewProposal() {
 
     try {
       const dataUrl = await fileToLogoDataUrl(file)
-      updateDefaults({ logoDataUrl: dataUrl })
+      setDefaults((current) => {
+        const next = { ...current, logoDataUrl: dataUrl }
+        if (defaultsHydrated.current) {
+          persistDefaults(next)
+          queueMicrotask(() => {
+            void syncProposalBranding(next)
+          })
+        }
+        return next
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao processar o logo.'
       setLogoError(message)
@@ -324,8 +437,17 @@ export default function NewProposal() {
     setMarkError('')
 
     try {
-      const dataUrl = await fileToLogoDataUrl(file)
-      updateDefaults({ markDataUrl: dataUrl })
+      const dataUrl = await fileToMarkDataUrl(file)
+      setDefaults((current) => {
+        const next = { ...current, markDataUrl: dataUrl }
+        if (defaultsHydrated.current) {
+          persistDefaults(next)
+          queueMicrotask(() => {
+            void syncProposalBranding(next)
+          })
+        }
+        return next
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao processar o símbolo.'
       setMarkError(message)
@@ -348,6 +470,9 @@ export default function NewProposal() {
       setAiContent(ai)
       setContent(built)
       setProposalId(id)
+      setProposalStatus('ativo')
+      setEditMode(false)
+      skipProposalPersist.current = true
       navigate(`/proposta/${id}`, { replace: true })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao gerar a proposta.'
@@ -373,6 +498,8 @@ export default function NewProposal() {
       setAiContent(ai)
       setContent(built)
       setAdjustment('')
+      setEditMode(false)
+      skipProposalPersist.current = true
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao refazer a proposta.'
       setRegenerateError(message)
@@ -382,7 +509,7 @@ export default function NewProposal() {
   }
 
   async function handleDownload() {
-    if (!content || downloading) {
+    if (!previewContent || downloading) {
       return
     }
 
@@ -390,11 +517,11 @@ export default function NewProposal() {
 
     try {
       const blob = await pdf(
-        <ProposalPdfDocument input={formInput} content={content} />,
+        <ProposalPdfDocument input={formInput} content={previewContent} />,
       ).toBlob()
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
-      const filename = `Proposta - ${sanitizeFilename(formInput.companyName)} - ${sanitizeFilename(content.projectTitle)}.pdf`
+      const filename = `Proposta - ${sanitizeFilename(formInput.companyName)} - ${sanitizeFilename(previewContent.projectTitle)}.pdf`
       anchor.href = url
       anchor.download = filename
       anchor.click()
@@ -406,25 +533,44 @@ export default function NewProposal() {
     }
   }
 
-  async function openHistory() {
-    setHistoryOpen(true)
-    setHistoryLoading(true)
+  async function applyContentEdits(ai: ProposalAiContent) {
+    const built = buildProposalContent(formInput, ai)
+    setContent(built)
+    setAiContent(ai)
 
-    try {
-      const items = await listProposals()
-      setHistoryItems(items)
-    } catch (error) {
-      console.error('[NewProposal] listProposals', error)
-      setHistoryItems([])
-    } finally {
-      setHistoryLoading(false)
+    if (proposalId) {
+      setSavingEdits(true)
+      try {
+        await updateProposal(proposalId, { input: formInput, content: built })
+      } catch (error) {
+        console.error('[NewProposal] applyContentEdits', error)
+      } finally {
+        setSavingEdits(false)
+      }
     }
+  }
+
+  function handleEditModeChange(checked: boolean) {
+    if (checked) {
+      if (content && !aiContent) {
+        setAiContent(extractAiContent(content))
+      }
+      setEditMode(true)
+      return
+    }
+
+    if (aiContent) {
+      void applyContentEdits(aiContent).then(() => setEditMode(false))
+      return
+    }
+
+    setEditMode(false)
   }
 
   if (loadingDoc) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="inline-block h-8 w-8 animate-spin border-2 border-accent border-t-transparent" />
+        <Spinner size="lg" />
       </div>
     )
   }
@@ -436,7 +582,7 @@ export default function NewProposal() {
           <div className="flex flex-wrap items-start justify-between gap-6">
             <div className="min-w-0 flex-1">
               <Link
-                to="/"
+                to="/?tab=propostas"
                 className="text-xs font-bold uppercase tracking-tight text-muted-foreground transition-colors hover:text-accent"
               >
                 ← Voltar
@@ -444,10 +590,27 @@ export default function NewProposal() {
               <h1 className="mt-3 text-3xl font-bold uppercase tracking-tighter text-foreground">
                 Nova proposta
               </h1>
+              {proposalId ? (
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <ProposalStatusSelector
+                    proposalId={proposalId}
+                    status={proposalStatus}
+                    onStatusChange={setProposalStatus}
+                  />
+                </div>
+              ) : null}
             </div>
-            <Button variant="ghost" size="sm" onClick={() => void openHistory()}>
-              Propostas anteriores
-            </Button>
+            {content ? (
+              <div className="self-end">
+                <Switch
+                  id="edit-proposal"
+                  label={editMode ? 'Editando' : 'Editar proposta'}
+                  checked={editMode}
+                  disabled={generating || regenerating || savingEdits}
+                  onChange={handleEditModeChange}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
       </header>
@@ -460,7 +623,7 @@ export default function NewProposal() {
                 <p className="text-sm font-semibold text-foreground">Dados fixos</p>
 
                 <div>
-                  <p className="kinetic-label mb-2">Logo (PNG)</p>
+                  <p className="kinetic-label mb-2">Logo</p>
                   {defaults.logoDataUrl ? (
                     <div className="flex items-center gap-3">
                       <div className="bg-surface-2 p-2">
@@ -486,16 +649,16 @@ export default function NewProposal() {
                       size="sm"
                       onClick={() => logoInputRef.current?.click()}
                     >
-                      Enviar logo PNG
+                      Enviar logo
                     </Button>
                   )}
                   <p className="mt-2 text-xs normal-case text-muted-foreground">
-                    Recomenda-se uma logo clara para melhor visualização na capa escura.
+                    Prefira uma logo clara (capa escura).
                   </p>
                   <input
                     ref={logoInputRef}
                     type="file"
-                    accept="image/png"
+                    accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,.png,.jpg,.jpeg,.webp,.gif,.bmp"
                     className="hidden"
                     onChange={(event) => void handleLogoChange(event)}
                   />
@@ -505,7 +668,7 @@ export default function NewProposal() {
                 </div>
 
                 <div>
-                  <p className="kinetic-label mb-2">Símbolo da marca (PNG)</p>
+                  <p className="kinetic-label mb-2">Símbolo da marca</p>
                   {defaults.markDataUrl ? (
                     <div className="flex items-center gap-3">
                       <div className="bg-surface-2 p-2">
@@ -531,17 +694,16 @@ export default function NewProposal() {
                       size="sm"
                       onClick={() => markInputRef.current?.click()}
                     >
-                      Enviar símbolo PNG
+                      Enviar símbolo
                     </Button>
                   )}
                   <p className="mt-2 text-xs normal-case text-muted-foreground">
-                    Aparece como marca d&apos;água no canto superior direito. Recomenda-se uma imagem
-                    escura (a opacidade já vem reduzida no PDF).
+                    Marca d&apos;água no canto. Prefira imagem escura.
                   </p>
                   <input
                     ref={markInputRef}
                     type="file"
-                    accept="image/png"
+                    accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,.png,.jpg,.jpeg,.webp,.gif,.bmp"
                     className="hidden"
                     onChange={(event) => void handleMarkChange(event)}
                   />
@@ -565,20 +727,21 @@ export default function NewProposal() {
                   />
                 </div>
 
+                <Input
+                  label="Site"
+                  value={defaults.websiteUrl}
+                  onChange={(event) => updateDefaults({ websiteUrl: event.target.value })}
+                  onBlur={() => persistDefaults(defaults)}
+                  placeholder="www.suaempresa.com.br"
+                  hint="Aparece no rodapé do PDF, acima da linha, à direita."
+                />
+
                 <Textarea
                   label="Sobre a empresa"
                   value={defaults.companyAbout}
                   onChange={(event) => updateDefaults({ companyAbout: event.target.value })}
                   onBlur={() => persistDefaults(defaults)}
                   rows={4}
-                />
-
-                <Input
-                  label="Segmento (linha sob o logo)"
-                  value={defaults.tagline}
-                  onChange={(event) => updateDefaults({ tagline: event.target.value })}
-                  onBlur={() => persistDefaults(defaults)}
-                  hint="Aparece em caixa alta abaixo do logo"
                 />
               </div>
 
@@ -721,28 +884,59 @@ export default function NewProposal() {
                 />
               </div>
 
-              <div className="mt-6 border-t border-border pt-6">
-                <p className="mb-3 text-xs normal-case text-muted-foreground">
-                  {pendingMessage ??
-                    'A IA vai escrever a proposta e montar o PDF com o seu template.'}
-                </p>
-                <Button
-                  size="lg"
-                  className="w-full"
-                  disabled={!canGenerate}
-                  loading={generating}
-                  onClick={() => void handleGenerate()}
-                >
-                  Gerar proposta
-                </Button>
-                {generateError ? (
-                  <p className="mt-3 text-sm text-status-error">{generateError}</p>
-                ) : null}
-              </div>
+              {!content ? (
+                <div className="mt-6 border-t border-border pt-6">
+                  <p className="mb-3 text-xs normal-case text-muted-foreground">
+                    {pendingMessage ?? 'A IA escreve a proposta e gera o PDF.'}
+                  </p>
+                  <Button
+                    size="lg"
+                    className="w-full"
+                    disabled={!canGenerate}
+                    loading={generating}
+                    onClick={() => void handleGenerate()}
+                  >
+                    Gerar proposta
+                  </Button>
+                  {generateError ? (
+                    <p className="mt-3 text-sm text-status-error">{generateError}</p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-6 border-t border-border pt-6">
+                  <p className="text-xs normal-case text-muted-foreground">
+                    Alterações neste formulário atualizam o PDF automaticamente.
+                  </p>
+                </div>
+              )}
             </Card>
           </aside>
 
           <div className="flex flex-1 flex-col gap-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+              <div className="min-w-0 flex-1">
+                <Input
+                  label="Nome do cliente/projeto"
+                  value={defaults.tagline}
+                  onChange={(event) => updateDefaults({ tagline: event.target.value })}
+                  onBlur={() => persistDefaults(defaults)}
+                  placeholder="Ex: Clínica Sorriso / João Silva"
+                />
+              </div>
+              {content && !generating ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="shrink-0"
+                  loading={downloading}
+                  onClick={() => void handleDownload()}
+                >
+                  <DownloadIcon />
+                  Baixar PDF
+                </Button>
+              ) : null}
+            </div>
+
             {!content && !generating ? (
               <div className="flex min-h-[60vh] flex-col items-center justify-center border-2 border-border px-6 text-center">
                 <p className="text-lg font-semibold text-foreground">Preview da proposta</p>
@@ -754,102 +948,55 @@ export default function NewProposal() {
 
             {generating ? (
               <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 border-2 border-border">
-                <span className="inline-block h-8 w-8 animate-spin border-2 border-accent border-t-transparent" />
+                <Spinner size="lg" />
                 <p className="text-sm normal-case text-muted-foreground">Escrevendo a proposta...</p>
               </div>
             ) : null}
 
             {content && !generating ? (
               <>
-                <div className="flex items-center justify-end">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={downloading}
-                    onClick={() => void handleDownload()}
-                  >
-                    Baixar PDF
-                  </Button>
-                </div>
-
-                <PDFViewer
-                  width="100%"
-                  height={900}
-                  showToolbar={false}
-                  className="border-2 border-border"
-                >
-                  <ProposalPdfDocument input={formInput} content={content} />
-                </PDFViewer>
-
-                <div className="space-y-3">
-                  <Textarea
-                    label="Ajustar proposta"
-                    value={adjustment}
-                    onChange={(event) => setAdjustment(event.target.value)}
-                    placeholder="O que você quer que a IA mude?"
-                    rows={4}
+                {editMode && aiContent ? (
+                  <ProposalContentEditor
+                    value={aiContent}
+                    onChange={setAiContent}
+                    showRecurringLabel={recurrenceEnabled}
                   />
-                  <p className="text-xs normal-case text-muted-foreground">
-                    {adjustment.trim()
-                      ? 'A IA vai refazer a proposta inteira aplicando o seu pedido.'
-                      : 'Escreva o que deve mudar.'}
-                  </p>
-                  <Button
-                    size="lg"
-                    disabled={!adjustment.trim() || regenerating}
-                    loading={regenerating}
-                    onClick={() => void handleRegenerate()}
-                  >
-                    Refazer proposta
-                  </Button>
-                  {regenerateError ? (
-                    <p className="text-sm text-status-error">{regenerateError}</p>
-                  ) : null}
-                </div>
+                ) : previewContent ? (
+                  <ProposalPdfPagedPreview input={formInput} content={previewContent} />
+                ) : null}
+
+                {!editMode ? (
+                  <div className="space-y-3">
+                    <Textarea
+                      label="Ajustar proposta"
+                      value={adjustment}
+                      onChange={(event) => setAdjustment(event.target.value)}
+                      placeholder="O que você quer que a IA mude?"
+                      rows={4}
+                    />
+                    <p className="text-xs normal-case text-muted-foreground">
+                      {adjustment.trim()
+                        ? 'A IA vai refazer a proposta inteira aplicando o seu pedido.'
+                        : 'Escreva o que deve mudar.'}
+                    </p>
+                    <Button
+                      size="lg"
+                      disabled={!adjustment.trim() || regenerating}
+                      loading={regenerating}
+                      onClick={() => void handleRegenerate()}
+                    >
+                      Refazer proposta
+                    </Button>
+                    {regenerateError ? (
+                      <p className="text-sm text-status-error">{regenerateError}</p>
+                    ) : null}
+                  </div>
+                ) : null}
               </>
             ) : null}
           </div>
         </main>
       </div>
-
-      <Dialog
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        title="Propostas anteriores"
-        className="max-w-lg"
-      >
-        {historyLoading ? (
-          <div className="flex justify-center py-10">
-            <span className="inline-block h-8 w-8 animate-spin border-2 border-accent border-t-transparent" />
-          </div>
-        ) : historyItems.length === 0 ? (
-          <p className="py-6 text-sm normal-case text-muted-foreground">
-            Nenhuma proposta salva ainda.
-          </p>
-        ) : (
-          <div className="divide-y divide-border">
-            {historyItems.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className="flex w-full flex-col items-start gap-1 py-4 text-left transition-colors hover:text-accent"
-                onClick={() => {
-                  setHistoryOpen(false)
-                  navigate(`/proposta/${item.id}`)
-                }}
-              >
-                <span className="font-semibold text-foreground">
-                  {item.content.projectTitle || 'Proposta sem título'}
-                </span>
-                <span className="text-xs normal-case text-muted-foreground tabular-nums">
-                  {formatRelativeTime(item.createdAt)} ·{' '}
-                  {formatCurrencyBRL(item.input.amountCents)}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </Dialog>
     </div>
   )
 }

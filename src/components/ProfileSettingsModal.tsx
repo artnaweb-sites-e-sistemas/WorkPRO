@@ -11,7 +11,7 @@ import {
 } from '../services/services'
 import type { PresenterProfile, Service } from '../types/models'
 import { cn } from '../lib/cn'
-import { Button, Dialog, Input, Switch, Textarea } from './ui'
+import { Button, Dialog, Input, Switch, Textarea, Spinner } from './ui'
 
 interface ProfileSettingsModalProps {
   open: boolean
@@ -183,7 +183,7 @@ export function ProfileSettingsModal({ open, onClose }: ProfileSettingsModalProp
     >
       {loading && (
         <div className="flex items-center justify-center py-12">
-          <span className="inline-block h-8 w-8 animate-spin border-2 border-accent border-t-transparent" />
+          <Spinner size="lg" />
         </div>
       )}
 

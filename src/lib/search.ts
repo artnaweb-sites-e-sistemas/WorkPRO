@@ -21,3 +21,11 @@ export function matchesConversationSearch(
     normalizeSearchText(projectTitle).includes(normalizedQuery)
   )
 }
+
+export function matchesProposalSearch(
+  companyName: string,
+  projectTitle: string,
+  query: string,
+): boolean {
+  return matchesConversationSearch(companyName, projectTitle, query)
+}
