@@ -14,7 +14,8 @@ import {
   LinearGradient,
   Stop,
 } from '@react-pdf/renderer'
-import type { ProposalContentDoc, ProposalFormInput } from '../types/proposalDoc'
+import type { MarkAnchor, ProposalContentDoc, ProposalFormInput } from '../types/proposalDoc'
+import { normalizeMarkAnchor, normalizeMarkScale } from '../types/proposalDoc'
 import { formatValidityLabel } from '../lib/proposalTerms'
 
 Font.register({
@@ -174,11 +175,16 @@ const styles = StyleSheet.create({
     color: YELLOW,
     opacity: 1,
   },
-  watermark: {
+  // `position: absolute` no react-pdf ancora na borda da página, não na área com padding
+  watermarkLayer: {
     position: 'absolute',
-    top: 300,
-    right: -60,
-    width: 420,
+    top: 0,
+    left: 0,
+    width: PAGE_W,
+    height: PAGE_H,
+    flexDirection: 'row',
+  },
+  watermarkImage: {
     opacity: 0.06,
     transform: 'rotate(-16deg)',
   },
@@ -763,6 +769,45 @@ function CoverPage({ input, content }: { input: ProposalFormInput; content: Prop
   )
 }
 
+/** Quanto o símbolo sangra para fora da página quando ancorado numa borda. */
+const WATERMARK_BLEED = 60
+
+function Watermark({
+  src,
+  anchor,
+  scale,
+}: {
+  src: string
+  anchor: MarkAnchor
+  scale: number
+}) {
+  const [vertical, horizontal] = normalizeMarkAnchor(anchor).split('-')
+  const width = Math.round((PAGE_W * normalizeMarkScale(scale)) / 100)
+
+  const justifyContent =
+    horizontal === 'left' ? 'flex-start' : horizontal === 'right' ? 'flex-end' : 'center'
+  const alignItems =
+    vertical === 'top' ? 'flex-start' : vertical === 'bottom' ? 'flex-end' : 'center'
+
+  return (
+    <View fixed style={[styles.watermarkLayer, { justifyContent, alignItems }]}>
+      <Image
+        src={src}
+        style={[
+          styles.watermarkImage,
+          {
+            width,
+            marginLeft: horizontal === 'left' ? -WATERMARK_BLEED : 0,
+            marginRight: horizontal === 'right' ? -WATERMARK_BLEED : 0,
+            marginTop: vertical === 'top' ? -WATERMARK_BLEED : 0,
+            marginBottom: vertical === 'bottom' ? -WATERMARK_BLEED : 0,
+          },
+        ]}
+      />
+    </View>
+  )
+}
+
 function ContentPages({
   input,
   content,
@@ -774,7 +819,9 @@ function ContentPages({
 
   return (
     <Page size={[PAGE_W, PAGE_H]} style={styles.pageLight} wrap>
-      {stampSrc ? <Image src={stampSrc} fixed style={styles.watermark} /> : null}
+      {stampSrc ? (
+        <Watermark src={stampSrc} anchor={input.markAnchor} scale={input.markScale} />
+      ) : null}
 
       <View>
         <SectionHeading title="Sobre a Empresa" />

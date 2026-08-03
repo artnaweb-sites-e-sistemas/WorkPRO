@@ -2,10 +2,18 @@ import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore'
 import type { Unsubscribe } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
 import type { ProposalDefaults } from '../types/proposalDoc'
+import {
+  DEFAULT_MARK_ANCHOR,
+  DEFAULT_MARK_SCALE,
+  normalizeMarkAnchor,
+  normalizeMarkScale,
+} from '../types/proposalDoc'
 
 const DEFAULT_PROPOSAL_DEFAULTS: ProposalDefaults = {
   logoDataUrl: '',
   markDataUrl: '',
+  markAnchor: DEFAULT_MARK_ANCHOR,
+  markScale: DEFAULT_MARK_SCALE,
   companyName: '',
   companyAbout: '',
   professionalName: '',
@@ -31,6 +39,8 @@ function mergeWithDefaults(data: Record<string, unknown>): ProposalDefaults {
       typeof data.logoDataUrl === 'string' ? data.logoDataUrl : DEFAULT_PROPOSAL_DEFAULTS.logoDataUrl,
     markDataUrl:
       typeof data.markDataUrl === 'string' ? data.markDataUrl : DEFAULT_PROPOSAL_DEFAULTS.markDataUrl,
+    markAnchor: normalizeMarkAnchor(data.markAnchor),
+    markScale: normalizeMarkScale(data.markScale),
     companyName:
       typeof data.companyName === 'string' ? data.companyName : DEFAULT_PROPOSAL_DEFAULTS.companyName,
     companyAbout:

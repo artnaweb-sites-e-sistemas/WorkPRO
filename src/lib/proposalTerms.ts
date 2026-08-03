@@ -47,6 +47,14 @@ export function buildPaymentNote(input: ProposalFormInput): string {
   return note
 }
 
+/**
+ * Passos de execução escritos pelo usuário: descarta linhas vazias (o editor permite
+ * linhas em branco enquanto ele digita) sem impor limite de quantidade.
+ */
+function normalizeProjectSteps(steps: string[]): string[] {
+  return steps.map((step) => step.trim()).filter(Boolean)
+}
+
 export function buildInvestmentRows(
   input: ProposalFormInput,
   ai: ProposalAiContent,
@@ -78,7 +86,7 @@ export function buildNextSteps(input: ProposalFormInput, ai: ProposalAiContent):
     paymentStep = `Pagamento da 1ª de ${n} parcelas ${installmentChannelLabel(payment.installmentKind)}`
   }
 
-  const projectSteps = [...ai.projectSteps]
+  const projectSteps = normalizeProjectSteps(ai.projectSteps)
   const trailing: string[] = []
 
   if (payment.method === 'metade') {
@@ -91,22 +99,23 @@ export function buildNextSteps(input: ProposalFormInput, ai: ProposalAiContent):
     )
   }
 
-  const fixedCount = 1 + trailing.length
-  const maxProjectSteps = Math.max(0, 6 - fixedCount)
-  const trimmedProjectSteps = projectSteps.slice(0, maxProjectSteps)
-
-  return [paymentStep, ...trimmedProjectSteps, ...trailing].slice(0, 6)
+  return [paymentStep, ...projectSteps, ...trailing]
 }
 
 export function buildProposalContent(
   input: ProposalFormInput,
   ai: ProposalAiContent,
 ): ProposalContentDoc {
-  return {
+  const normalized: ProposalAiContent = {
     ...ai,
-    investmentRows: buildInvestmentRows(input, ai),
+    projectSteps: normalizeProjectSteps(ai.projectSteps),
+  }
+
+  return {
+    ...normalized,
+    investmentRows: buildInvestmentRows(input, normalized),
     paymentNote: buildPaymentNote(input),
-    nextSteps: buildNextSteps(input, ai),
+    nextSteps: buildNextSteps(input, normalized),
   }
 }
 

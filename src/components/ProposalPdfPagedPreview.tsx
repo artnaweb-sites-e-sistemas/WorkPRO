@@ -83,6 +83,8 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
   const [rendering, setRendering] = useState(false)
   const [error, setError] = useState('')
   const [boxWidth, setBoxWidth] = useState(0)
+  /** Depois da 1ª página desenhada, atualizações não escondem mais o canvas. */
+  const [hasRendered, setHasRendered] = useState(false)
 
   useEffect(() => {
     const box = pageBoxRef.current
@@ -106,7 +108,6 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
       void (async () => {
         setLoadingDoc(true)
         setError('')
-        setPageNumber(1)
 
         try {
           await cancelRenderTask(renderTaskRef.current)
@@ -131,6 +132,9 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
 
           pdfDocRef.current = doc
           setNumPages(doc.numPages)
+          // Mantém a página que estava aberta ao regerar o PDF (ajuste de posição,
+          // tamanho, texto...). Só recua se o documento novo tiver menos páginas.
+          setPageNumber((current) => Math.min(Math.max(1, current), doc.numPages))
           setLoadingDoc(false)
         } catch (err) {
           console.error('[ProposalPdfPagedPreview] load', err)
@@ -203,6 +207,7 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
         if (!cancelled) {
           setError('')
           setRendering(false)
+          setHasRendered(true)
         }
       } catch (err) {
         if (isCancelledError(err) || cancelled) {
@@ -257,8 +262,15 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
       style={{ aspectRatio: PAGE_ASPECT }}
     >
       {(loadingDoc || rendering) && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70">
-            <Spinner size="md" />
+        <div
+          className={cn(
+            'absolute z-10 flex',
+            hasRendered
+              ? 'pointer-events-none left-3 top-3'
+              : 'inset-0 items-center justify-center bg-background/70',
+          )}
+        >
+          <Spinner size={hasRendered ? 'sm' : 'md'} />
         </div>
       )}
 

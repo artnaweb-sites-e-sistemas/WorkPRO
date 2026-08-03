@@ -32,7 +32,9 @@ o layout. Conte os caracteres antes de responder e reescreva se passar.
 - recurringLabel: rótulo da linha de recorrência mensal. MÁXIMO 70 caracteres.
   Ex: "Manutenção mensal (hospedagem, monitoramento, atualizações e suporte)"
   Preencha sempre, mesmo que a recorrência esteja desligada (o sistema descarta).
-- projectSteps: de 2 a 3 passos de EXECUÇÃO. Cada um MÁXIMO 70 caracteres.
+- projectSteps: de 2 a 4 passos de EXECUÇÃO. Cada um MÁXIMO 70 caracteres.
+  Se a proposta atual já vier com passos escritos pelo usuário, PRESERVE todos eles
+  (inclusive quando forem mais de 4) e só mexa no que o ajuste pedir.
   PROIBIDO incluir passo de pagamento, parcela, recorrência ou cobrança — o sistema
   monta esses passos sozinho.
   Ex: "Preenchimento do briefing com materiais", "Desenvolvimento e entrega dentro do
@@ -143,7 +145,7 @@ function parseProposalAiContent(raw: string): ProposalAiContent {
       ? parsed.projectSteps
           .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
           .map((item) => hardTruncate(item, 70))
-          .slice(0, 3)
+          .slice(0, 10)
       : []
 
     const prerequisiteRaw = parsed.prerequisiteBody

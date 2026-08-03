@@ -11,6 +11,51 @@ export type RecurrenceStartTiming =
   | 'logo_apos_entrega'
   | '30_dias_apos_entrega'
 
+/** Âncora da marca d'água na página — grade de 9 posições. */
+export type MarkAnchor =
+  | 'top-left'
+  | 'top-center'
+  | 'top-right'
+  | 'middle-left'
+  | 'middle-center'
+  | 'middle-right'
+  | 'bottom-left'
+  | 'bottom-center'
+  | 'bottom-right'
+
+/** Ordem de leitura da grade 3x3 (linha por linha). */
+export const MARK_ANCHOR_GRID: { value: MarkAnchor; label: string }[] = [
+  { value: 'top-left', label: 'Superior esquerda' },
+  { value: 'top-center', label: 'Superior centro' },
+  { value: 'top-right', label: 'Superior direita' },
+  { value: 'middle-left', label: 'Meio esquerda' },
+  { value: 'middle-center', label: 'Meio centro' },
+  { value: 'middle-right', label: 'Meio direita' },
+  { value: 'bottom-left', label: 'Inferior esquerda' },
+  { value: 'bottom-center', label: 'Inferior centro' },
+  { value: 'bottom-right', label: 'Inferior direita' },
+]
+
+/** Tamanho do símbolo em % da largura da página. */
+export const MARK_SCALE_MIN = 15
+export const MARK_SCALE_MAX = 90
+export const DEFAULT_MARK_ANCHOR: MarkAnchor = 'middle-right'
+export const DEFAULT_MARK_SCALE = 52
+
+export function normalizeMarkAnchor(value: unknown): MarkAnchor {
+  return MARK_ANCHOR_GRID.some((option) => option.value === value)
+    ? (value as MarkAnchor)
+    : DEFAULT_MARK_ANCHOR
+}
+
+export function normalizeMarkScale(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_MARK_SCALE
+  }
+
+  return Math.min(MARK_SCALE_MAX, Math.max(MARK_SCALE_MIN, Math.round(value)))
+}
+
 export interface ProposalPaymentTerms {
   method: PaymentMethod
   /** 2..12, apenas quando method === 'parcelado'; senão null */
@@ -33,6 +78,10 @@ export interface ProposalDefaults {
   logoDataUrl: string
   /** data URL PNG do símbolo da marca — marca d'água nas páginas de conteúdo */
   markDataUrl: string
+  /** posição da marca d'água na página */
+  markAnchor: MarkAnchor
+  /** tamanho da marca d'água em % da largura da página */
+  markScale: number
   companyName: string
   companyAbout: string
   professionalName: string
@@ -49,6 +98,8 @@ export interface ProposalFormInput {
   tagline: string
   logoDataUrl: string
   markDataUrl: string
+  markAnchor: MarkAnchor
+  markScale: number
   /** site da empresa (opcional) */
   websiteUrl: string
   /** janela de contexto: o que o usuário escreve sobre o projeto */
@@ -74,7 +125,7 @@ export interface ProposalAiContent {
   setupLabel: string
   /** rótulo da linha de recorrência; usado só quando recurrence.enabled */
   recurringLabel: string
-  /** 2 a 3 passos de execução do projeto, SEM passos de pagamento */
+  /** passos de execução do projeto, SEM passos de pagamento (o sistema monta esses) */
   projectSteps: string[]
   closingParagraph: string
 }

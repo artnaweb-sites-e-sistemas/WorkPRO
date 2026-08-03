@@ -37,6 +37,20 @@ export function ProposalContentEditor({
     })
   }
 
+  function updateProjectStep(index: number, text: string) {
+    patch({
+      projectSteps: value.projectSteps.map((step, i) => (i === index ? text : step)),
+    })
+  }
+
+  function removeProjectStep(index: number) {
+    patch({ projectSteps: value.projectSteps.filter((_, i) => i !== index) })
+  }
+
+  function addProjectStep() {
+    patch({ projectSteps: [...value.projectSteps, ''] })
+  }
+
   return (
     <div className="space-y-6 border-2 border-border bg-surface p-5 sm:p-6">
       <div>
@@ -151,20 +165,66 @@ export function ProposalContentEditor({
         />
       ) : null}
 
-      <Textarea
-        label="Passos do projeto"
-        value={value.projectSteps.join('\n')}
-        onChange={(event) =>
-          patch({
-            projectSteps: event.target.value
-              .split('\n')
-              .map((line) => line.trim())
-              .filter(Boolean),
-          })
-        }
-        rows={4}
-        hint="Um passo por linha (2 a 3). Pagamentos são montados automaticamente."
-      />
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <p className="kinetic-label">Passos do projeto</p>
+            <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+              {value.projectSteps.length}
+            </span>
+          </div>
+          <Button type="button" variant="secondary" size="sm" onClick={addProjectStep}>
+            Adicionar passo
+          </Button>
+        </div>
+
+        {value.projectSteps.length === 0 ? (
+          <p className="text-xs normal-case text-muted-foreground">
+            Nenhum passo ainda. Só os passos de pagamento vão aparecer no PDF.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border border-y border-border">
+            {value.projectSteps.map((step, index) => (
+              <li key={index} className="flex items-center gap-3">
+                <span className="w-5 shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+                  {index + 1}
+                </span>
+                <input
+                  type="text"
+                  value={step}
+                  onChange={(event) => updateProjectStep(index, event.target.value)}
+                  placeholder="Descreva o passo"
+                  aria-label={`Passo ${index + 1}`}
+                  className="min-w-0 flex-1 border-0 bg-transparent py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeProjectStep(index)}
+                  aria-label={`Remover passo ${index + 1}`}
+                  title="Remover passo"
+                  className="min-h-touch min-w-touch shrink-0 text-muted-foreground transition-colors duration-150 hover:text-status-error"
+                >
+                  <svg
+                    className="mx-auto h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    aria-hidden
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <p className="text-xs normal-case text-muted-foreground">
+          Só os passos de execução. O pagamento e a recorrência entram sozinhos na
+          numeração do PDF.
+        </p>
+      </div>
 
       <Textarea
         label="Texto de encerramento"

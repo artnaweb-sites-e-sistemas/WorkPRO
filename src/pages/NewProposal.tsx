@@ -6,6 +6,7 @@ import {
   generateProposalAiContent,
   regenerateProposalAiContent,
 } from '../ai/generateProposalDoc'
+import { MarkAnchorGrid, MarkScaleSlider } from '../components/MarkPlacementPicker'
 import { ProposalContentEditor } from '../components/ProposalContentEditor'
 import { ProposalPdfPagedPreview } from '../components/ProposalPdfPagedPreview'
 import { ProposalStatusSelector } from '../components/ProposalStatusSelector'
@@ -32,7 +33,11 @@ import type {
   RecurrenceStartTiming,
   ProposalStatus,
 } from '../types/proposalDoc'
-import { RECURRENCE_START_TIMING_OPTIONS } from '../types/proposalDoc'
+import {
+  RECURRENCE_START_TIMING_OPTIONS,
+  normalizeMarkAnchor,
+  normalizeMarkScale,
+} from '../types/proposalDoc'
 
 function extractAiContent(content: ProposalContentDoc): ProposalAiContent {
   return {
@@ -82,6 +87,8 @@ function buildInputFromState(params: {
     tagline: params.defaults.tagline || 'Desenvolvimento web & sistemas',
     logoDataUrl: params.defaults.logoDataUrl,
     markDataUrl: params.defaults.markDataUrl,
+    markAnchor: normalizeMarkAnchor(params.defaults.markAnchor),
+    markScale: normalizeMarkScale(params.defaults.markScale),
     websiteUrl: params.defaults.websiteUrl.trim(),
     projectContext: params.projectContext,
     amountCents: params.amountCents,
@@ -335,6 +342,8 @@ export default function NewProposal() {
         const mergedDefaults: ProposalDefaults = {
           logoDataUrl: doc.input.logoDataUrl || savedDefaults.logoDataUrl,
           markDataUrl: doc.input.markDataUrl || savedDefaults.markDataUrl,
+          markAnchor: normalizeMarkAnchor(doc.input.markAnchor ?? savedDefaults.markAnchor),
+          markScale: normalizeMarkScale(doc.input.markScale ?? savedDefaults.markScale),
           companyName: doc.input.companyName || savedDefaults.companyName,
           companyAbout: doc.input.companyAbout || savedDefaults.companyAbout,
           professionalName: doc.input.professionalName || savedDefaults.professionalName,
@@ -686,6 +695,10 @@ export default function NewProposal() {
                       >
                         Substituir
                       </Button>
+                      <MarkAnchorGrid
+                        anchor={defaults.markAnchor}
+                        onChange={(markAnchor) => updateDefaults({ markAnchor })}
+                      />
                     </div>
                   ) : (
                     <Button
@@ -698,8 +711,16 @@ export default function NewProposal() {
                     </Button>
                   )}
                   <p className="mt-2 text-xs normal-case text-muted-foreground">
-                    Marca d&apos;água no canto. Prefira imagem escura.
+                    Marca d&apos;água nas páginas de conteúdo. Prefira imagem escura.
                   </p>
+                  {defaults.markDataUrl ? (
+                    <div className="mt-3">
+                      <MarkScaleSlider
+                        scale={defaults.markScale}
+                        onChange={(markScale) => updateDefaults({ markScale })}
+                      />
+                    </div>
+                  ) : null}
                   <input
                     ref={markInputRef}
                     type="file"
