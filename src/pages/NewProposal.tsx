@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, CSSProperties } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { pdf } from '@react-pdf/renderer'
 import {
+  generateExtraSuggestions,
   generateProposalAiContent,
   regenerateProposalAiContent,
 } from '../ai/generateProposalDoc'
+import { ProposalExtrasFields } from '../components/ProposalExtrasFields'
+import type { ExtraDraft } from '../components/ProposalExtrasFields'
 import { MarkAnchorGrid, MarkScaleSlider } from '../components/MarkPlacementPicker'
 import { ProposalContentEditor } from '../components/ProposalContentEditor'
 import { ProposalPdfPagedPreview } from '../components/ProposalPdfPagedPreview'
@@ -27,6 +30,8 @@ import type {
   ProposalAiContent,
   ProposalContentDoc,
   ProposalDefaults,
+  ProposalExtraItem,
+  ProposalExtras,
   ProposalFormInput,
   ProposalPaymentTerms,
   ProposalRecurrence,
@@ -35,9 +40,21 @@ import type {
 } from '../types/proposalDoc'
 import {
   RECURRENCE_START_TIMING_OPTIONS,
+  accentColorRgbChannels,
+  accentForegroundColor,
+  normalizeAccentColor,
+  normalizeExtras,
   normalizeMarkAnchor,
   normalizeMarkScale,
 } from '../types/proposalDoc'
+
+function extrasToDrafts(items: ProposalExtraItem[]): ExtraDraft[] {
+  return items.map((item) => ({
+    title: item.title,
+    amountDisplay: item.amountCents > 0 ? formatCurrencyBRL(item.amountCents) : '',
+    source: item.source === 'ai' ? 'ai' : 'manual',
+  }))
+}
 
 function extractAiContent(content: ProposalContentDoc): ProposalAiContent {
   return {
@@ -74,26 +91,31 @@ function normalizeRecurrenceFromDoc(raw: ProposalRecurrence & { firstPaymentDate
 
 function buildInputFromState(params: {
   defaults: ProposalDefaults
+  /** nome do cliente/projeto — por proposta, não persiste nos defaults */
+  tagline: string
   projectContext: string
   amountCents: number
   payment: ProposalPaymentTerms
   recurrence: ProposalRecurrence
+  extras: ProposalExtras
   validityDays: number
 }): ProposalFormInput {
   return {
     companyName: params.defaults.companyName,
     companyAbout: params.defaults.companyAbout,
     professionalName: params.defaults.professionalName,
-    tagline: params.defaults.tagline || 'Desenvolvimento web & sistemas',
+    tagline: params.tagline.trim(),
     logoDataUrl: params.defaults.logoDataUrl,
     markDataUrl: params.defaults.markDataUrl,
     markAnchor: normalizeMarkAnchor(params.defaults.markAnchor),
     markScale: normalizeMarkScale(params.defaults.markScale),
     websiteUrl: params.defaults.websiteUrl.trim(),
+    accentColor: normalizeAccentColor(params.defaults.accentColor),
     projectContext: params.projectContext,
     amountCents: params.amountCents,
     payment: params.payment,
     recurrence: params.recurrence,
+    extras: params.extras,
     validityDays: params.validityDays > 0 ? params.validityDays : 15,
   }
 }
@@ -131,6 +153,7 @@ export default function NewProposal() {
   const skipProposalPersist = useRef(true)
 
   const [defaults, setDefaults] = useState<ProposalDefaults>(DEFAULT_PROPOSAL_DEFAULTS)
+  const [tagline, setTagline] = useState('')
   const [projectContext, setProjectContext] = useState('')
   const [amountDisplay, setAmountDisplay] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('avista')
@@ -139,6 +162,9 @@ export default function NewProposal() {
   const [recurrenceEnabled, setRecurrenceEnabled] = useState(false)
   const [recurrenceAmountDisplay, setRecurrenceAmountDisplay] = useState('')
   const [startTiming, setStartTiming] = useState<RecurrenceStartTiming>('ato_contratacao')
+  const [extrasEnabled, setExtrasEnabled] = useState(false)
+  const [extraDrafts, setExtraDrafts] = useState<ExtraDraft[]>([])
+  const [extrasAiSuggest, setExtrasAiSuggest] = useState(false)
   const [validityDays, setValidityDays] = useState(15)
   const [logoError, setLogoError] = useState('')
   const [markError, setMarkError] = useState('')
@@ -176,19 +202,38 @@ export default function NewProposal() {
     [recurrenceEnabled, recurrenceAmountDisplay, startTiming],
   )
 
+  const extras: ProposalExtras = useMemo(
+    () => ({
+      enabled: extrasEnabled,
+      aiSuggest: extrasAiSuggest,
+      items: extrasEnabled
+        ? extraDrafts
+            .map((draft) => ({
+              title: draft.title.trim(),
+              amountCents: parseCurrencyBRL(draft.amountDisplay),
+              source: draft.source,
+            }))
+            .filter((item) => item.title.length > 0)
+        : [],
+    }),
+    [extrasEnabled, extrasAiSuggest, extraDrafts],
+  )
+
   const amountCents = parseCurrencyBRL(amountDisplay)
 
   const formInput = useMemo(
     () =>
       buildInputFromState({
         defaults,
+        tagline,
         projectContext,
         amountCents,
         payment,
         recurrence,
+        extras,
         validityDays,
       }),
-    [defaults, projectContext, amountCents, payment, recurrence, validityDays],
+    [defaults, tagline, projectContext, amountCents, payment, recurrence, extras, validityDays],
   )
 
   /** Conteúdo exibido no PDF: textos da IA + termos recalculados do formulário. */
@@ -202,6 +247,35 @@ export default function NewProposal() {
 
   const pendingMessage = getPendingMessage(formInput)
   const canGenerate = !pendingMessage && !generating && !loadingDoc
+
+  const pageAccent = normalizeAccentColor(defaults.accentColor)
+  const pageAccentStyle = useMemo((): CSSProperties => {
+    const foreground = accentForegroundColor(pageAccent)
+    return {
+      ['--color-accent' as never]: pageAccent,
+      ['--color-accent-rgb' as never]: accentColorRgbChannels(pageAccent),
+      ['--color-accent-foreground' as never]: foreground,
+      ['--color-accent-foreground-rgb' as never]: accentColorRgbChannels(foreground),
+    }
+  }, [pageAccent])
+
+  // Aplica a cor no :root para todos os utilitários Tailwind (bg-accent, switches, etc.)
+  // atualizarem na mesma pintura — o style só no wrapper interno não bastava em alguns casos.
+  useLayoutEffect(() => {
+    const root = document.documentElement
+    const foreground = accentForegroundColor(pageAccent)
+    root.style.setProperty('--color-accent', pageAccent)
+    root.style.setProperty('--color-accent-rgb', accentColorRgbChannels(pageAccent))
+    root.style.setProperty('--color-accent-foreground', foreground)
+    root.style.setProperty('--color-accent-foreground-rgb', accentColorRgbChannels(foreground))
+
+    return () => {
+      root.style.removeProperty('--color-accent')
+      root.style.removeProperty('--color-accent-rgb')
+      root.style.removeProperty('--color-accent-foreground')
+      root.style.removeProperty('--color-accent-foreground-rgb')
+    }
+  }, [pageAccent])
 
   // Após gerar: qualquer ajuste do formulário atualiza o PDF e salva a proposta
   useEffect(() => {
@@ -264,10 +338,12 @@ export default function NewProposal() {
 
       const input = buildInputFromState({
         defaults: nextDefaults,
+        tagline,
         projectContext,
         amountCents: parseCurrencyBRL(amountDisplay),
         payment,
         recurrence,
+        extras,
         validityDays,
       })
 
@@ -277,7 +353,7 @@ export default function NewProposal() {
         console.error('[NewProposal] syncProposalBranding', error)
       }
     },
-    [proposalId, projectContext, amountDisplay, payment, recurrence, validityDays],
+    [proposalId, tagline, projectContext, amountDisplay, payment, recurrence, extras, validityDays],
   )
 
   const updateDefaults = useCallback(
@@ -348,10 +424,14 @@ export default function NewProposal() {
           companyAbout: doc.input.companyAbout || savedDefaults.companyAbout,
           professionalName: doc.input.professionalName || savedDefaults.professionalName,
           websiteUrl: doc.input.websiteUrl || savedDefaults.websiteUrl,
-          tagline: doc.input.tagline || savedDefaults.tagline,
+          accentColor: normalizeAccentColor(
+            doc.input.accentColor || savedDefaults.accentColor,
+          ),
+          tagline: savedDefaults.tagline,
         }
 
         setDefaults(mergedDefaults)
+        setTagline(doc.input.tagline)
         setProjectContext(doc.input.projectContext)
         setAmountDisplay(doc.input.amountCents > 0 ? formatCurrencyBRL(doc.input.amountCents) : '')
         setPaymentMethod(doc.input.payment.method)
@@ -367,6 +447,10 @@ export default function NewProposal() {
             : '',
         )
         setStartTiming(normalizedRecurrence.startTiming ?? 'ato_contratacao')
+        const normalizedExtras = normalizeExtras(doc.input.extras)
+        setExtrasEnabled(normalizedExtras.enabled)
+        setExtrasAiSuggest(normalizedExtras.aiSuggest)
+        setExtraDrafts(extrasToDrafts(normalizedExtras.items))
         setValidityDays(doc.input.validityDays > 0 ? doc.input.validityDays : 15)
         setProposalId(doc.id)
         setProposalStatus(doc.status ?? 'ativo')
@@ -463,6 +547,40 @@ export default function NewProposal() {
     }
   }
 
+  /**
+   * Com o switch ligado, pede os adicionais à IA antes de escrever a proposta (para o
+   * texto sair coerente com eles). Itens digitados à mão são preservados; itens que a
+   * própria IA havia sugerido antes são substituídos.
+   */
+  async function withGeneratedExtras(base: ProposalFormInput): Promise<ProposalFormInput> {
+    if (!base.extras.enabled || !base.extras.aiSuggest) {
+      return base
+    }
+
+    const manual = base.extras.items.filter((item) => item.source !== 'ai')
+
+    try {
+      // A IA não pode ver os adicionais antigos dela, senão repete os mesmos.
+      const suggested = await generateExtraSuggestions({
+        ...base,
+        extras: { ...base.extras, items: manual },
+      })
+
+      if (suggested.length === 0) {
+        return base
+      }
+
+      const aiItems: ProposalExtraItem[] = suggested.map((item) => ({ ...item, source: 'ai' }))
+      const merged = [...manual, ...aiItems]
+      setExtraDrafts(extrasToDrafts(merged))
+
+      return { ...base, extras: { ...base.extras, items: merged } }
+    } catch (error) {
+      console.error('[NewProposal] withGeneratedExtras', error)
+      return base
+    }
+  }
+
   async function handleGenerate() {
     if (!canGenerate) {
       return
@@ -472,9 +590,11 @@ export default function NewProposal() {
     setGenerateError('')
 
     try {
-      const ai = await generateProposalAiContent(formInput)
-      const built = buildProposalContent(formInput, ai)
-      const id = await createProposal(formInput, built)
+      const inputForGeneration = await withGeneratedExtras(formInput)
+
+      const ai = await generateProposalAiContent(inputForGeneration)
+      const built = buildProposalContent(inputForGeneration, ai)
+      const id = await createProposal(inputForGeneration, built)
 
       setAiContent(ai)
       setContent(built)
@@ -500,9 +620,14 @@ export default function NewProposal() {
     setRegenerateError('')
 
     try {
-      const ai = await regenerateProposalAiContent(formInput, aiContent, adjustment.trim())
-      const built = buildProposalContent(formInput, ai)
-      await updateProposal(proposalId, { input: formInput, content: built })
+      const inputForGeneration = await withGeneratedExtras(formInput)
+      const ai = await regenerateProposalAiContent(
+        inputForGeneration,
+        aiContent,
+        adjustment.trim(),
+      )
+      const built = buildProposalContent(inputForGeneration, ai)
+      await updateProposal(proposalId, { input: inputForGeneration, content: built })
 
       setAiContent(ai)
       setContent(built)
@@ -543,9 +668,14 @@ export default function NewProposal() {
   }
 
   async function applyContentEdits(ai: ProposalAiContent) {
-    const built = buildProposalContent(formInput, ai)
+    const cleaned: ProposalAiContent = {
+      ...ai,
+      includedItems: ai.includedItems.map((s) => s.trim()).filter(Boolean),
+      projectSteps: ai.projectSteps.map((s) => s.trim()).filter(Boolean),
+    }
+    const built = buildProposalContent(formInput, cleaned)
     setContent(built)
-    setAiContent(ai)
+    setAiContent(cleaned)
 
     if (proposalId) {
       setSavingEdits(true)
@@ -578,14 +708,14 @@ export default function NewProposal() {
 
   if (loadingDoc) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="flex min-h-screen items-center justify-center bg-background" style={pageAccentStyle}>
         <Spinner size="lg" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" style={pageAccentStyle}>
       <header className="border-b border-border bg-surface">
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-6">
@@ -631,10 +761,17 @@ export default function NewProposal() {
               <div className="space-y-4">
                 <p className="text-sm font-semibold text-foreground">Dados fixos</p>
 
+                {editMode && content ? (
+                  <p className="text-xs normal-case text-muted-foreground">
+                    Logo, símbolo e cor continuam sendo salvos. Desligue &ldquo;Editando&rdquo; para ver o
+                    PDF com essas alterações.
+                  </p>
+                ) : null}
+
                 <div>
                   <p className="kinetic-label mb-2">Logo</p>
-                  {defaults.logoDataUrl ? (
-                    <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3">
+                    {defaults.logoDataUrl ? (
                       <div className="bg-surface-2 p-2">
                         <img
                           src={defaults.logoDataUrl}
@@ -642,27 +779,44 @@ export default function NewProposal() {
                           className="h-16 object-contain"
                         />
                       </div>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => logoInputRef.current?.click()}
-                      >
-                        Substituir
-                      </Button>
-                    </div>
-                  ) : (
+                    ) : null}
                     <Button
                       type="button"
                       variant="secondary"
                       size="sm"
                       onClick={() => logoInputRef.current?.click()}
                     >
-                      Enviar logo
+                      {defaults.logoDataUrl ? 'Substituir' : 'Enviar logo'}
                     </Button>
-                  )}
+                    <label
+                      className="relative h-10 w-10 shrink-0 cursor-pointer border-2 border-border"
+                      title="Cor padrão da proposta"
+                      aria-label="Cor padrão da proposta"
+                    >
+                      <span
+                        className="absolute inset-0"
+                        style={{ backgroundColor: normalizeAccentColor(defaults.accentColor) }}
+                        aria-hidden
+                      />
+                      <input
+                        type="color"
+                        value={normalizeAccentColor(defaults.accentColor).toLowerCase()}
+                        onInput={(event) =>
+                          updateDefaults({
+                            accentColor: normalizeAccentColor(
+                              (event.target as HTMLInputElement).value,
+                            ),
+                          })
+                        }
+                        onChange={(event) =>
+                          updateDefaults({ accentColor: normalizeAccentColor(event.target.value) })
+                        }
+                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      />
+                    </label>
+                  </div>
                   <p className="mt-2 text-xs normal-case text-muted-foreground">
-                    Prefira uma logo clara (capa escura).
+                    Prefira uma logo clara (capa escura). O quadrado define a cor de destaque do PDF.
                   </p>
                   <input
                     ref={logoInputRef}
@@ -797,6 +951,10 @@ export default function NewProposal() {
                         value: 'metade' as const,
                         label: 'Metade no ato e o restante em 30 dias',
                       },
+                      {
+                        value: 'metade_conclusao' as const,
+                        label: 'Metade no ato e o restante após conclusão',
+                      },
                       { value: 'parcelado' as const, label: 'Parcelado' },
                     ] as const
                   ).map((option) => (
@@ -889,6 +1047,20 @@ export default function NewProposal() {
                     </div>
                   </div>
                 ) : null}
+
+                <Switch
+                  checked={extrasEnabled}
+                  onChange={setExtrasEnabled}
+                  label="Projeto com adicionais"
+                />
+                {extrasEnabled ? (
+                  <ProposalExtrasFields
+                    items={extraDrafts}
+                    onChange={setExtraDrafts}
+                    aiSuggest={extrasAiSuggest}
+                    onAiSuggestChange={setExtrasAiSuggest}
+                  />
+                ) : null}
               </div>
 
               <div className="mt-6 space-y-4 border-t border-border pt-6">
@@ -908,7 +1080,10 @@ export default function NewProposal() {
               {!content ? (
                 <div className="mt-6 border-t border-border pt-6">
                   <p className="mb-3 text-xs normal-case text-muted-foreground">
-                    {pendingMessage ?? 'A IA escreve a proposta e gera o PDF.'}
+                    {pendingMessage ??
+                      (extrasEnabled && extrasAiSuggest
+                        ? 'A IA vai escrever a proposta, sugerir os adicionais e montar o PDF.'
+                        : 'A IA escreve a proposta e gera o PDF.')}
                   </p>
                   <Button
                     size="lg"
@@ -938,9 +1113,8 @@ export default function NewProposal() {
               <div className="min-w-0 flex-1">
                 <Input
                   label="Nome do cliente/projeto"
-                  value={defaults.tagline}
-                  onChange={(event) => updateDefaults({ tagline: event.target.value })}
-                  onBlur={() => persistDefaults(defaults)}
+                  value={tagline}
+                  onChange={(event) => setTagline(event.target.value)}
                   placeholder="Ex: Clínica Sorriso / João Silva"
                 />
               </div>
@@ -981,6 +1155,16 @@ export default function NewProposal() {
                     value={aiContent}
                     onChange={setAiContent}
                     showRecurringLabel={recurrenceEnabled}
+                    extras={
+                      extrasEnabled
+                        ? {
+                            items: extraDrafts,
+                            onChange: setExtraDrafts,
+                            aiSuggest: extrasAiSuggest,
+                            onAiSuggestChange: setExtrasAiSuggest,
+                          }
+                        : undefined
+                    }
                   />
                 ) : previewContent ? (
                   <ProposalPdfPagedPreview input={formInput} content={previewContent} />

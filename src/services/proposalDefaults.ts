@@ -3,8 +3,10 @@ import type { Unsubscribe } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
 import type { ProposalDefaults } from '../types/proposalDoc'
 import {
+  DEFAULT_ACCENT_COLOR,
   DEFAULT_MARK_ANCHOR,
   DEFAULT_MARK_SCALE,
+  normalizeAccentColor,
   normalizeMarkAnchor,
   normalizeMarkScale,
 } from '../types/proposalDoc'
@@ -18,6 +20,7 @@ const DEFAULT_PROPOSAL_DEFAULTS: ProposalDefaults = {
   companyAbout: '',
   professionalName: '',
   websiteUrl: '',
+  accentColor: DEFAULT_ACCENT_COLOR,
   tagline: 'Desenvolvimento web & sistemas',
 }
 
@@ -53,6 +56,7 @@ function mergeWithDefaults(data: Record<string, unknown>): ProposalDefaults {
         : DEFAULT_PROPOSAL_DEFAULTS.professionalName,
     websiteUrl:
       typeof data.websiteUrl === 'string' ? data.websiteUrl : DEFAULT_PROPOSAL_DEFAULTS.websiteUrl,
+    accentColor: normalizeAccentColor(data.accentColor),
     tagline:
       typeof data.tagline === 'string' && data.tagline.trim()
         ? data.tagline

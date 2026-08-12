@@ -1,8 +1,16 @@
 import { SchemaType } from '@google/generative-ai'
 import { getGeminiModel } from '../lib/ai'
 import { formatCurrencyBRL } from '../lib/currencyBRL'
-import { describePaymentForAi, describeRecurrenceForAi } from '../lib/proposalTerms'
-import type { ProposalAiContent, ProposalFormInput } from '../types/proposalDoc'
+import {
+  describeExtrasForAi,
+  describePaymentForAi,
+  describeRecurrenceForAi,
+} from '../lib/proposalTerms'
+import type {
+  ProposalAiContent,
+  ProposalExtraItem,
+  ProposalFormInput,
+} from '../types/proposalDoc'
 import { BASE_IDENTITY } from './knowledgeBase'
 
 const SYSTEM_INSTRUCTION = `${BASE_IDENTITY}
@@ -226,6 +234,7 @@ function buildUserContent(input: ProposalFormInput): string {
     `VALOR TOTAL DO PROJETO: ${formatCurrencyBRL(input.amountCents)}`,
     `FORMA DE PAGAMENTO: ${describePaymentForAi(input)}`,
     `RECORRÊNCIA: ${describeRecurrenceForAi(input)}`,
+    `ADICIONAIS OPCIONAIS: ${describeExtrasForAi(input)}`,
     `VALIDADE DA PROPOSTA: ${input.validityDays > 0 ? input.validityDays : 15} dias`,
   ].join('\n')
 }
@@ -236,6 +245,72 @@ export async function generateProposalAiContent(
   const model = getGeminiModel(SYSTEM_INSTRUCTION, PROPOSAL_DOC_SCHEMA)
   const result = await model.generateContent(buildUserContent(input))
   return parseProposalAiContent(result.response.text())
+}
+
+const EXTRAS_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    extras: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          title: { type: SchemaType.STRING },
+          amountReais: { type: SchemaType.NUMBER },
+        },
+        required: ['title', 'amountReais'],
+      },
+    },
+  },
+  required: ['extras'],
+}
+
+const EXTRAS_INSTRUCTION = `Sugira ADICIONAIS OPCIONAIS para uma proposta comercial: serviços que fazem sentido
+oferecer à parte, NÃO inclusos no valor do projeto. Português do Brasil.
+
+Retorne de 3 a 4 itens. Cada item:
+- title: nome curto e concreto do adicional. MÁXIMO 60 caracteres, sem ponto final,
+  sem preço no texto.
+- amountReais: preço sugerido em reais (número). Coerente com o porte do projeto:
+  cada adicional deve custar bem menos que o valor total informado, tipicamente entre
+  5% e 30% dele. Arredonde para valores comerciais (250, 500, 800, 1200...).
+
+REGRAS:
+- Os adicionais precisam nascer do CONTEXTO DO PROJETO. Nada genérico que sirva para
+  qualquer proposta.
+- PROIBIDO repetir algo que já está incluso no escopo do projeto ou que já é cobrado
+  como recorrência mensal.
+- Nunca use markdown, emoji, bullet ou "R$" dentro do title.`
+
+/** Sugestões de adicionais (usadas para preencher a lista do formulário). */
+export async function generateExtraSuggestions(
+  input: ProposalFormInput,
+): Promise<Omit<ProposalExtraItem, 'source'>[]> {
+  const model = getGeminiModel(`${BASE_IDENTITY}\n\n${EXTRAS_INSTRUCTION}`, EXTRAS_SCHEMA)
+  const result = await model.generateContent(buildUserContent(input))
+
+  try {
+    const parsed = JSON.parse(result.response.text()) as {
+      extras?: { title?: unknown; amountReais?: unknown }[]
+    }
+
+    if (!Array.isArray(parsed.extras)) {
+      return []
+    }
+
+    return parsed.extras
+      .map((item) => ({
+        title: hardTruncate(typeof item.title === 'string' ? item.title.trim() : '', 60),
+        amountCents:
+          typeof item.amountReais === 'number' && item.amountReais > 0
+            ? Math.round(item.amountReais * 100)
+            : 0,
+      }))
+      .filter((item) => item.title.length > 0)
+      .slice(0, 4)
+  } catch {
+    return []
+  }
 }
 
 export async function regenerateProposalAiContent(

@@ -1,16 +1,26 @@
 import { Button, Input, Textarea } from './ui'
+import { ProposalExtrasFields } from './ProposalExtrasFields'
+import type { ExtraDraft } from './ProposalExtrasFields'
 import type { ProposalAiContent } from '../types/proposalDoc'
 
 interface ProposalContentEditorProps {
   value: ProposalAiContent
   onChange: (next: ProposalAiContent) => void
   showRecurringLabel: boolean
+  /** quando presente, renderiza a lista de adicionais dentro do editor */
+  extras?: {
+    items: ExtraDraft[]
+    onChange: (items: ExtraDraft[]) => void
+    aiSuggest: boolean
+    onAiSuggestChange: (value: boolean) => void
+  }
 }
 
 export function ProposalContentEditor({
   value,
   onChange,
   showRecurringLabel,
+  extras,
 }: ProposalContentEditorProps) {
   function patch(partial: Partial<ProposalAiContent>) {
     onChange({ ...value, ...partial })
@@ -51,6 +61,20 @@ export function ProposalContentEditor({
     patch({ projectSteps: [...value.projectSteps, ''] })
   }
 
+  function updateIncludedItem(index: number, text: string) {
+    patch({
+      includedItems: value.includedItems.map((item, i) => (i === index ? text : item)),
+    })
+  }
+
+  function removeIncludedItem(index: number) {
+    patch({ includedItems: value.includedItems.filter((_, i) => i !== index) })
+  }
+
+  function addIncludedItem() {
+    patch({ includedItems: [...value.includedItems, ''] })
+  }
+
   return (
     <div className="space-y-6 border-2 border-border bg-surface p-5 sm:p-6">
       <div>
@@ -79,20 +103,59 @@ export function ProposalContentEditor({
         rows={5}
       />
 
-      <Textarea
-        label="Itens inclusos"
-        value={value.includedItems.join('\n')}
-        onChange={(event) =>
-          patch({
-            includedItems: event.target.value
-              .split('\n')
-              .map((line) => line.trim())
-              .filter(Boolean),
-          })
-        }
-        rows={6}
-        hint="Um item por linha."
-      />
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <p className="kinetic-label">Itens inclusos</p>
+            <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+              {value.includedItems.length}
+            </span>
+          </div>
+          <Button type="button" variant="secondary" size="sm" onClick={addIncludedItem}>
+            + Item
+          </Button>
+        </div>
+
+        {value.includedItems.length === 0 ? (
+          <p className="text-xs normal-case text-muted-foreground">Nenhum item incluso ainda.</p>
+        ) : (
+          <ul className="divide-y divide-border border-y border-border">
+            {value.includedItems.map((item, index) => (
+              <li key={index} className="flex items-center gap-3">
+                <span className="w-5 shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+                  {index + 1}
+                </span>
+                <input
+                  type="text"
+                  value={item}
+                  onChange={(event) => updateIncludedItem(index, event.target.value)}
+                  placeholder="Descreva o item incluso"
+                  aria-label={`Item incluso ${index + 1}`}
+                  className="min-w-0 flex-1 border-0 bg-transparent py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeIncludedItem(index)}
+                  aria-label={`Remover item incluso ${index + 1}`}
+                  title="Remover item"
+                  className="min-h-touch min-w-touch shrink-0 text-muted-foreground transition-colors duration-150 hover:text-status-error"
+                >
+                  <svg
+                    className="mx-auto h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    aria-hidden
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <Textarea
         label="Pré-requisitos"
@@ -163,6 +226,13 @@ export function ProposalContentEditor({
           value={value.recurringLabel}
           onChange={(event) => patch({ recurringLabel: event.target.value })}
         />
+      ) : null}
+
+      {extras ? (
+        <div>
+          <p className="kinetic-label mb-2">Adicionais</p>
+          <ProposalExtrasFields {...extras} />
+        </div>
       ) : null}
 
       <div className="space-y-2">

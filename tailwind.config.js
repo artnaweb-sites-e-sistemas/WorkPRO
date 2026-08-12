@@ -19,8 +19,8 @@ export default {
         foreground: '#FAFAFA',
         'muted-foreground': '#A1A1AA',
         accent: {
-          DEFAULT: '#DFE104',
-          foreground: '#000000',
+          DEFAULT: 'rgb(var(--color-accent-rgb) / <alpha-value>)',
+          foreground: 'rgb(var(--color-accent-foreground-rgb) / <alpha-value>)',
         },
         border: '#3F3F46',
         status: {

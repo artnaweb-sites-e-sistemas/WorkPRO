@@ -10,7 +10,9 @@
   --color-foreground: #FAFAFA;
   --color-muted-foreground: #A1A1AA;
   --color-accent: #DFE104;
+  --color-accent-rgb: 223 225 4;
   --color-accent-foreground: #000000;
+  --color-accent-foreground-rgb: 0 0 0;
   --color-border: #3F3F46;
 }
 

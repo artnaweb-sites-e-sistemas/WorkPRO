@@ -2,7 +2,7 @@ import type { Timestamp } from 'firebase/firestore'
 
 export type ProposalStatus = 'ativo' | 'fechado' | 'perdido'
 
-export type PaymentMethod = 'avista' | 'metade' | 'parcelado'
+export type PaymentMethod = 'avista' | 'metade' | 'metade_conclusao' | 'parcelado'
 export type InstallmentKind = 'boleto' | 'cartao'
 
 
@@ -41,6 +41,8 @@ export const MARK_SCALE_MIN = 15
 export const MARK_SCALE_MAX = 90
 export const DEFAULT_MARK_ANCHOR: MarkAnchor = 'middle-right'
 export const DEFAULT_MARK_SCALE = 52
+/** Amarelo original do template PDF — fallback da cor de destaque */
+export const DEFAULT_ACCENT_COLOR = '#FFDE59'
 
 export function normalizeMarkAnchor(value: unknown): MarkAnchor {
   return MARK_ANCHOR_GRID.some((option) => option.value === value)
@@ -56,12 +58,103 @@ export function normalizeMarkScale(value: unknown): number {
   return Math.min(MARK_SCALE_MAX, Math.max(MARK_SCALE_MIN, Math.round(value)))
 }
 
+/** Aceita #RGB ou #RRGGBB; inválido volta ao amarelo padrão. */
+export function normalizeAccentColor(value: unknown): string {
+  if (typeof value !== 'string') {
+    return DEFAULT_ACCENT_COLOR
+  }
+
+  const trimmed = value.trim()
+  if (/^#[0-9A-Fa-f]{6}$/.test(trimmed)) {
+    return trimmed.toUpperCase()
+  }
+
+  if (/^#[0-9A-Fa-f]{3}$/.test(trimmed)) {
+    const r = trimmed[1]
+    const g = trimmed[2]
+    const b = trimmed[3]
+    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase()
+  }
+
+  return DEFAULT_ACCENT_COLOR
+}
+
+/** Canais R G B (ex.: "255 222 89") para Tailwind com opacidade. */
+export function accentColorRgbChannels(value: unknown): string {
+  const hex = normalizeAccentColor(value)
+  const r = Number.parseInt(hex.slice(1, 3), 16)
+  const g = Number.parseInt(hex.slice(3, 5), 16)
+  const b = Number.parseInt(hex.slice(5, 7), 16)
+  return `${r} ${g} ${b}`
+}
+
+/** Texto sobre a cor de destaque: preto em fundo claro, branco em fundo escuro. */
+export function accentForegroundColor(value: unknown): string {
+  const hex = normalizeAccentColor(value)
+  const r = Number.parseInt(hex.slice(1, 3), 16)
+  const g = Number.parseInt(hex.slice(3, 5), 16)
+  const b = Number.parseInt(hex.slice(5, 7), 16)
+  const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luma > 0.55 ? '#000000' : '#FFFFFF'
+}
+
 export interface ProposalPaymentTerms {
   method: PaymentMethod
   /** 2..12, apenas quando method === 'parcelado'; senão null */
   installments: number | null
   /** apenas quando method === 'parcelado'; senão null */
   installmentKind: InstallmentKind | null
+}
+
+/** Item opcional oferecido à parte do valor do projeto. */
+export interface ProposalExtraItem {
+  title: string
+  /** centavos; 0 significa "sob consulta" */
+  amountCents: number
+  /** 'ai' = veio da IA e pode ser substituído numa nova geração; 'manual' = preservado */
+  source: 'ai' | 'manual'
+}
+
+export interface ProposalExtras {
+  enabled: boolean
+  /** quando true, a IA gera os adicionais junto com a proposta */
+  aiSuggest: boolean
+  items: ProposalExtraItem[]
+}
+
+export const EMPTY_PROPOSAL_EXTRAS: ProposalExtras = {
+  enabled: false,
+  aiSuggest: false,
+  items: [],
+}
+
+export function normalizeExtras(raw: unknown): ProposalExtras {
+  if (!raw || typeof raw !== 'object') {
+    return EMPTY_PROPOSAL_EXTRAS
+  }
+
+  const record = raw as { enabled?: unknown; aiSuggest?: unknown; items?: unknown }
+  const items = Array.isArray(record.items)
+    ? record.items
+        .map((item) => {
+          const entry = item as { title?: unknown; amountCents?: unknown; source?: unknown }
+          return {
+            title: typeof entry.title === 'string' ? entry.title.trim() : '',
+            amountCents:
+              typeof entry.amountCents === 'number' && entry.amountCents > 0
+                ? Math.round(entry.amountCents)
+                : 0,
+            source: entry.source === 'ai' ? ('ai' as const) : ('manual' as const),
+          }
+        })
+        .filter((item) => item.title.length > 0)
+    : []
+
+  return {
+    enabled: record.enabled === true,
+    aiSuggest: record.aiSuggest === true,
+    items,
+  }
 }
 
 export interface ProposalRecurrence {
@@ -87,7 +180,12 @@ export interface ProposalDefaults {
   professionalName: string
   /** site da empresa — aparece acima da linha do rodapé, à direita */
   websiteUrl: string
-  /** linha sob o logo na capa e título na lista. Default: 'Desenvolvimento web & sistemas' */
+  /** cor de destaque do PDF (substitui o amarelo do template) */
+  accentColor: string
+  /**
+   * legado nos defaults (não editar na UI).
+   * Nome do cliente/projeto vive em ProposalFormInput.tagline por proposta.
+   */
   tagline: string
 }
 
@@ -95,6 +193,7 @@ export interface ProposalFormInput {
   companyName: string
   companyAbout: string
   professionalName: string
+  /** nome do cliente/projeto — capa e lista; por proposta */
   tagline: string
   logoDataUrl: string
   markDataUrl: string
@@ -102,12 +201,16 @@ export interface ProposalFormInput {
   markScale: number
   /** site da empresa (opcional) */
   websiteUrl: string
+  /** cor de destaque do PDF */
+  accentColor: string
   /** janela de contexto: o que o usuário escreve sobre o projeto */
   projectContext: string
   /** valor total do projeto, em centavos */
   amountCents: number
   payment: ProposalPaymentTerms
   recurrence: ProposalRecurrence
+  /** itens opcionais impressos entre "Investimento" e "Próximos passos" */
+  extras: ProposalExtras
   /** validade da proposta em dias (impressa no rodapé da última página) */
   validityDays: number
 }

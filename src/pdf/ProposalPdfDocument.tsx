@@ -14,9 +14,19 @@ import {
   LinearGradient,
   Stop,
 } from '@react-pdf/renderer'
-import type { MarkAnchor, ProposalContentDoc, ProposalFormInput } from '../types/proposalDoc'
-import { normalizeMarkAnchor, normalizeMarkScale } from '../types/proposalDoc'
-import { formatValidityLabel } from '../lib/proposalTerms'
+import type {
+  MarkAnchor,
+  ProposalContentDoc,
+  ProposalExtraItem,
+  ProposalFormInput,
+} from '../types/proposalDoc'
+import {
+  DEFAULT_ACCENT_COLOR,
+  normalizeAccentColor,
+  normalizeMarkAnchor,
+  normalizeMarkScale,
+} from '../types/proposalDoc'
+import { formatExtraValue, formatValidityLabel, resolveExtraItems } from '../lib/proposalTerms'
 
 Font.register({
   family: 'Open Sans',
@@ -32,7 +42,7 @@ const PAGE_W = 810
 const PAGE_H = 1440
 const MARGIN_X = 81
 const CONTENT_W = 648
-const YELLOW = '#FFDE59'
+const YELLOW = DEFAULT_ACCENT_COLOR
 const GRAY = '#9B9B9B'
 const LIGHT_BG = '#E8E8E8'
 /** Cor única do rodapé (linha + texto), com opacidade baixa */
@@ -409,6 +419,47 @@ const styles = StyleSheet.create({
     backgroundColor: '#3F3F46',
     marginVertical: 18,
   },
+  extrasBlock: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#E2E2E2',
+    paddingVertical: 22,
+    paddingHorizontal: 24,
+  },
+  extrasRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  extrasTitle: {
+    flex: 1,
+    fontFamily: 'Open Sans',
+    fontWeight: 400,
+    fontSize: 17,
+    lineHeight: 1.35,
+    color: '#2A2A2A',
+    paddingRight: 16,
+  },
+  extrasValue: {
+    fontFamily: 'Open Sans',
+    fontWeight: 700,
+    fontSize: 18,
+    color: DARK,
+    textAlign: 'right',
+  },
+  extrasDivider: {
+    height: 1.5,
+    backgroundColor: '#E2E2E2',
+    marginVertical: 18,
+  },
+  extrasNote: {
+    marginTop: 12,
+    fontFamily: 'Open Sans',
+    fontWeight: 400,
+    fontSize: 15,
+    lineHeight: 1.4,
+    color: '#6B6B6B',
+  },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -494,10 +545,10 @@ function CheckIcon() {
   )
 }
 
-function SectionHeading({ title }: { title: string }) {
+function SectionHeading({ title, accent }: { title: string; accent: string }) {
   return (
     <View style={styles.sectionHeading}>
-      <View style={styles.sectionBar} />
+      <View style={[styles.sectionBar, { backgroundColor: accent }]} />
       <Text style={styles.sectionTitle}>{title}</Text>
     </View>
   )
@@ -585,6 +636,7 @@ function PageFooter({
   validityDays,
   closing,
   tone = 'light',
+  accent = DEFAULT_ACCENT_COLOR,
 }: {
   companyName: string
   websiteUrl?: string
@@ -593,6 +645,7 @@ function PageFooter({
   closing?: boolean
   /** light = páginas brancas; dark = capa / fechamento */
   tone?: 'light' | 'dark'
+  accent?: string
 }) {
   const lineStyle = tone === 'dark' ? styles.footerLineDark : styles.footerLine
   const textStyle = tone === 'dark' ? styles.footerTextDark : styles.footerText
@@ -609,8 +662,10 @@ function PageFooter({
         <View style={styles.footerRow}>
           <Text style={textStyle}>
             Proposta válida por{' '}
-            <Text style={styles.footerValidityAccent}>{formatValidityLabel(days)}</Text> a partir
-            da data de envio
+            <Text style={[styles.footerValidityAccent, { color: accent }]}>
+              {formatValidityLabel(days)}
+            </Text>{' '}
+            a partir da data de envio
           </Text>
           <Text style={textStyle}>{formatMonthYear()}</Text>
         </View>
@@ -697,13 +752,20 @@ function RichPaymentText({ text }: { text: string }) {
   )
 }
 
-function PaymentTermsBlock({ paymentNote }: { paymentNote: string }) {
+function PaymentTermsBlock({
+  paymentNote,
+  accent,
+}: {
+  paymentNote: string
+  accent: string
+}) {
   const { paymentLine, recurrenceLine } = splitPaymentNote(paymentNote)
+  const accentBar = [styles.paymentAccent, { backgroundColor: accent }]
 
   return (
     <View style={styles.paymentBlock} wrap={false}>
       <View style={styles.paymentRow}>
-        <View style={styles.paymentAccent} />
+        <View style={accentBar} />
         <View style={styles.paymentContent}>
           <Text style={styles.paymentLabel}>Forma de pagamento</Text>
           <RichPaymentText text={paymentLine} />
@@ -714,7 +776,7 @@ function PaymentTermsBlock({ paymentNote }: { paymentNote: string }) {
         <>
           <View style={styles.paymentDivider} />
           <View style={styles.paymentRow}>
-            <View style={styles.paymentAccent} />
+            <View style={accentBar} />
             <View style={styles.paymentContent}>
               <Text style={styles.paymentLabel}>Recorrência</Text>
               <RichPaymentText text={formatRecurrenceBody(recurrenceLine)} />
@@ -728,8 +790,10 @@ function PaymentTermsBlock({ paymentNote }: { paymentNote: string }) {
 
 function InvestmentBlock({
   rows,
+  accent,
 }: {
   rows: { label: string; value: string }[]
+  accent: string
 }) {
   return (
     <View style={styles.investmentBlock} wrap={false}>
@@ -737,9 +801,9 @@ function InvestmentBlock({
         <View key={`${row.label}-${index}`}>
           {index > 0 ? <View style={styles.investmentDivider} /> : null}
           <View style={styles.investmentRow}>
-            <View style={styles.paymentAccent} />
+            <View style={[styles.paymentAccent, { backgroundColor: accent }]} />
             <Text style={styles.investmentLabel}>{row.label}</Text>
-            <Text style={styles.investmentValue}>{row.value}</Text>
+            <Text style={[styles.investmentValue, { color: accent }]}>{row.value}</Text>
           </View>
         </View>
       ))}
@@ -747,7 +811,37 @@ function InvestmentBlock({
   )
 }
 
-function CoverPage({ input, content }: { input: ProposalFormInput; content: ProposalContentDoc }) {
+function ExtrasBlock({ items, accent }: { items: ProposalExtraItem[]; accent: string }) {
+  return (
+    <>
+      <View style={styles.extrasBlock} wrap={false}>
+        {items.map((item, index) => (
+          <View key={`${item.title}-${index}`}>
+            {index > 0 ? <View style={styles.extrasDivider} /> : null}
+            <View style={styles.extrasRow}>
+              <View style={[styles.paymentAccent, { backgroundColor: accent }]} />
+              <Text style={styles.extrasTitle}>{item.title}</Text>
+              <Text style={styles.extrasValue}>{formatExtraValue(item.amountCents)}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+      <Text style={styles.extrasNote}>
+        Itens opcionais, cobrados à parte do valor do projeto.
+      </Text>
+    </>
+  )
+}
+
+function CoverPage({
+  input,
+  content,
+  accent,
+}: {
+  input: ProposalFormInput
+  content: ProposalContentDoc
+  accent: string
+}) {
   return (
     <Page size={[PAGE_W, PAGE_H]} style={styles.pageDark}>
       <DarkBackground />
@@ -760,11 +854,16 @@ function CoverPage({ input, content }: { input: ProposalFormInput; content: Prop
 
       <View style={styles.coverCenter}>
         <Text style={styles.coverTitle}>{content.projectTitle}</Text>
-        <View style={styles.yellowBar} />
+        <View style={[styles.yellowBar, { backgroundColor: accent }]} />
         <Text style={styles.coverSubtitle}>{content.projectSubtitle}</Text>
       </View>
 
-      <PageFooter companyName={input.companyName} websiteUrl={input.websiteUrl} tone="dark" />
+      <PageFooter
+        companyName={input.companyName}
+        websiteUrl={input.websiteUrl}
+        tone="dark"
+        accent={accent}
+      />
     </Page>
   )
 }
@@ -811,11 +910,14 @@ function Watermark({
 function ContentPages({
   input,
   content,
+  accent,
 }: {
   input: ProposalFormInput
   content: ProposalContentDoc
+  accent: string
 }) {
   const stampSrc = input.markDataUrl
+  const extraItems = resolveExtraItems(input)
 
   return (
     <Page size={[PAGE_W, PAGE_H]} style={styles.pageLight} wrap>
@@ -824,12 +926,12 @@ function ContentPages({
       ) : null}
 
       <View>
-        <SectionHeading title="Sobre a Empresa" />
+        <SectionHeading title="Sobre a Empresa" accent={accent} />
         <Text style={styles.aboutText}>{content.aboutText}</Text>
       </View>
 
       <View style={styles.sectionBlock}>
-        <SectionHeading title="O que está incluso" />
+        <SectionHeading title="O que está incluso" accent={accent} />
         <View style={styles.includedCard} wrap={false}>
           {content.includedItems.map((item, index) => (
             <View key={`${item}-${index}`}>
@@ -845,7 +947,7 @@ function ContentPages({
 
       {content.prerequisiteBody ? (
         <View style={styles.prerequisiteBlock} wrap={false}>
-          <View style={styles.prerequisiteBadge}>
+          <View style={[styles.prerequisiteBadge, { backgroundColor: accent }]}>
             <Text style={styles.prerequisiteBadgeText}>PRÉ-REQUISITO DO PROJETO</Text>
           </View>
           {content.prerequisiteBody
@@ -864,7 +966,7 @@ function ContentPages({
       ) : null}
 
       <View style={styles.sectionBlock} wrap={false}>
-        <SectionHeading title="Como funciona na prática" />
+        <SectionHeading title="Como funciona na prática" accent={accent} />
         {(() => {
           const stageWidth = stageColumnWidth(content.howItWorks.map((row) => row.stage))
           const descWidth = CONTENT_W - stageWidth
@@ -895,29 +997,46 @@ function ContentPages({
       </View>
 
       <View style={styles.sectionBlock}>
-        <SectionHeading title="Investimento" />
-        <InvestmentBlock rows={content.investmentRows} />
-        <PaymentTermsBlock paymentNote={content.paymentNote} />
+        <SectionHeading title="Investimento" accent={accent} />
+        <InvestmentBlock rows={content.investmentRows} accent={accent} />
+        <PaymentTermsBlock paymentNote={content.paymentNote} accent={accent} />
       </View>
 
+      {extraItems.length > 0 ? (
+        <View style={styles.sectionBlock}>
+          <SectionHeading title="Adicionais" accent={accent} />
+          <ExtrasBlock items={extraItems} accent={accent} />
+        </View>
+      ) : null}
+
       <View style={styles.sectionBlock}>
-        <SectionHeading title="Próximos passos" />
+        <SectionHeading title="Próximos passos" accent={accent} />
         {content.nextSteps.map((step, index) => (
           <View key={`${step}-${index}`} style={styles.stepRow} wrap={false}>
             <View style={styles.stepCircle}>
-              <Text style={styles.stepNumber}>{String(index + 1).padStart(2, '0')}</Text>
+              <Text style={[styles.stepNumber, { color: accent }]}>
+                {String(index + 1).padStart(2, '0')}
+              </Text>
             </View>
             <Text style={styles.stepText}>{step}</Text>
           </View>
         ))}
       </View>
 
-      <PageFooter companyName={input.companyName} websiteUrl={input.websiteUrl} />
+      <PageFooter companyName={input.companyName} websiteUrl={input.websiteUrl} accent={accent} />
     </Page>
   )
 }
 
-function ClosingPage({ input, content }: { input: ProposalFormInput; content: ProposalContentDoc }) {
+function ClosingPage({
+  input,
+  content,
+  accent,
+}: {
+  input: ProposalFormInput
+  content: ProposalContentDoc
+  accent: string
+}) {
   return (
     <Page size={[PAGE_W, PAGE_H]} style={styles.pageDark}>
       <DarkBackground />
@@ -931,8 +1050,8 @@ function ClosingPage({ input, content }: { input: ProposalFormInput; content: Pr
       <View style={styles.coverCenter}>
         <Text style={styles.closingTitle}>Vamos construir isso juntos.</Text>
         <Text style={styles.closingParagraph}>{content.closingParagraph}</Text>
-        <View style={styles.closingDivider} />
-        <Text style={styles.closingName}>{input.professionalName}</Text>
+        <View style={[styles.closingDivider, { backgroundColor: accent }]} />
+        <Text style={[styles.closingName, { color: accent }]}>{input.professionalName}</Text>
       </View>
 
       <PageFooter
@@ -940,6 +1059,7 @@ function ClosingPage({ input, content }: { input: ProposalFormInput; content: Pr
         websiteUrl={input.websiteUrl}
         closing
         tone="dark"
+        accent={accent}
         validityDays={input.validityDays > 0 ? input.validityDays : 15}
       />
     </Page>
@@ -953,11 +1073,13 @@ export function ProposalPdfDocument({
   input: ProposalFormInput
   content: ProposalContentDoc
 }) {
+  const accent = normalizeAccentColor(input.accentColor)
+
   return (
     <Document>
-      <CoverPage input={input} content={content} />
-      <ContentPages input={input} content={content} />
-      <ClosingPage input={input} content={content} />
+      <CoverPage input={input} content={content} accent={accent} />
+      <ContentPages input={input} content={content} accent={accent} />
+      <ClosingPage input={input} content={content} accent={accent} />
     </Document>
   )
 }

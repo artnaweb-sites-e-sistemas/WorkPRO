@@ -2,6 +2,7 @@ import { formatCurrencyBRL } from './currencyBRL'
 import type {
   ProposalAiContent,
   ProposalContentDoc,
+  ProposalExtraItem,
   ProposalFormInput,
   RecurrenceStartTiming,
 } from '../types/proposalDoc'
@@ -30,10 +31,12 @@ export function buildPaymentNote(input: ProposalFormInput): string {
 
   if (payment.method === 'avista') {
     note = `${total} à vista, na contratação.`
-  } else if (payment.method === 'metade') {
+  } else if (payment.method === 'metade' || payment.method === 'metade_conclusao') {
     const first = Math.round(amountCents / 2)
     const second = amountCents - first
-    note = `${formatCurrencyBRL(first)} na contratação e ${formatCurrencyBRL(second)} em 30 dias.`
+    const secondWhen =
+      payment.method === 'metade_conclusao' ? 'após a conclusão' : 'em 30 dias'
+    note = `${formatCurrencyBRL(first)} na contratação e ${formatCurrencyBRL(second)} ${secondWhen}.`
   } else {
     const n = payment.installments ?? 3
     const parcela = Math.floor(amountCents / n)
@@ -80,7 +83,7 @@ export function buildNextSteps(input: ProposalFormInput, ai: ProposalAiContent):
   let paymentStep: string
   if (payment.method === 'avista') {
     paymentStep = 'Pagamento integral no início do projeto'
-  } else if (payment.method === 'metade') {
+  } else if (payment.method === 'metade' || payment.method === 'metade_conclusao') {
     paymentStep = 'Pagamento da 1ª parcela (50%)'
   } else {
     paymentStep = `Pagamento da 1ª de ${n} parcelas ${installmentChannelLabel(payment.installmentKind)}`
@@ -90,7 +93,9 @@ export function buildNextSteps(input: ProposalFormInput, ai: ProposalAiContent):
   const trailing: string[] = []
 
   if (payment.method === 'metade') {
-    trailing.push('Pagamento da 2ª parcela (50%) na entrega')
+    trailing.push('Pagamento da 2ª parcela (50%) em 30 dias')
+  } else if (payment.method === 'metade_conclusao') {
+    trailing.push('Pagamento da 2ª parcela (50%) após a conclusão')
   }
 
   if (recurrence.enabled && recurrence.startTiming) {
@@ -131,6 +136,35 @@ export function describeRecurrenceForAi(input: ProposalFormInput): string {
   }
 
   return `${formatCurrencyBRL(recurrence.amountCents)} por mês ${formatRecurrenceStartPhrase(recurrence.startTiming)}`
+}
+
+/** Adicionais válidos para impressão: precisam de título; valor 0 vira "Sob consulta". */
+export function resolveExtraItems(input: ProposalFormInput): ProposalExtraItem[] {
+  if (!input.extras?.enabled) {
+    return []
+  }
+
+  return input.extras.items
+    .map((item) => ({
+      title: item.title.trim(),
+      amountCents: item.amountCents,
+      source: item.source === 'ai' ? ('ai' as const) : ('manual' as const),
+    }))
+    .filter((item) => item.title.length > 0)
+}
+
+export function formatExtraValue(amountCents: number): string {
+  return amountCents > 0 ? formatCurrencyBRL(amountCents) : 'Sob consulta'
+}
+
+/** Frase de contexto dos adicionais para o prompt da IA (não vai para o PDF). */
+export function describeExtrasForAi(input: ProposalFormInput): string {
+  const items = resolveExtraItems(input)
+  if (items.length === 0) {
+    return 'nenhum'
+  }
+
+  return items.map((item) => `${item.title} (${formatExtraValue(item.amountCents)})`).join('; ')
 }
 
 export function formatValidityLabel(days: number): string {
