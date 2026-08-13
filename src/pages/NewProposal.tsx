@@ -1050,7 +1050,12 @@ export default function NewProposal() {
 
                 <Switch
                   checked={extrasEnabled}
-                  onChange={setExtrasEnabled}
+                  onChange={(checked) => {
+                    setExtrasEnabled(checked)
+                    if (checked) {
+                      setExtrasAiSuggest(true)
+                    }
+                  }}
                   label="Projeto com adicionais"
                 />
                 {extrasEnabled ? (
