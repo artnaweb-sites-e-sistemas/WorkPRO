@@ -3,7 +3,7 @@ import { pdf } from '@react-pdf/renderer'
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
-import { ProposalPdfDocument } from '../pdf/ProposalPdfDocument'
+import { ProposalPdfDocument, PDF_LAYOUT_REVISION } from '../pdf/ProposalPdfDocument'
 import type { ProposalContentDoc, ProposalFormInput } from '../types/proposalDoc'
 import { cn } from '../lib/cn'
 import { Spinner } from './ui'
@@ -152,7 +152,7 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [input, content])
+  }, [input, content, PDF_LAYOUT_REVISION])
 
   useEffect(() => {
     return () => {

@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react'
 import {
   Document,
   Font,
@@ -19,6 +20,8 @@ import type {
   ProposalContentDoc,
   ProposalExtraItem,
   ProposalFormInput,
+  ProposalPageBreaks,
+  ProposalSectionId,
 } from '../types/proposalDoc'
 import {
   DEFAULT_ACCENT_COLOR,
@@ -26,7 +29,12 @@ import {
   normalizeMarkAnchor,
   normalizeMarkScale,
 } from '../types/proposalDoc'
-import { formatExtraValue, formatValidityLabel, resolveExtraItems } from '../lib/proposalTerms'
+import {
+  buildRecurrenceDetail,
+  formatExtraValue,
+  formatValidityLabel,
+  resolveExtraItems,
+} from '../lib/proposalTerms'
 
 Font.register({
   family: 'Open Sans',
@@ -42,6 +50,8 @@ const PAGE_W = 810
 const PAGE_H = 1440
 const MARGIN_X = 81
 const CONTENT_W = 648
+/** Sobe quando o layout do PDF muda sem alterar input/content, para o preview regenerar. */
+export const PDF_LAYOUT_REVISION = 2
 const YELLOW = DEFAULT_ACCENT_COLOR
 const GRAY = '#9B9B9B'
 const LIGHT_BG = '#E8E8E8'
@@ -391,6 +401,15 @@ const styles = StyleSheet.create({
     fontFamily: 'Open Sans',
     fontWeight: 700,
     fontSize: 15,
+    color: DARK,
+    letterSpacing: 0.3,
+    marginBottom: 8,
+  },
+  recurrenceMeta: {
+    fontFamily: 'Open Sans',
+    fontWeight: 400,
+    fontSize: 15,
+    lineHeight: 1.4,
     color: DARK,
     letterSpacing: 0.3,
     marginBottom: 8,
@@ -754,12 +773,17 @@ function RichPaymentText({ text }: { text: string }) {
 
 function PaymentTermsBlock({
   paymentNote,
+  input,
+  content,
   accent,
 }: {
   paymentNote: string
+  input: ProposalFormInput
+  content: ProposalContentDoc
   accent: string
 }) {
   const { paymentLine, recurrenceLine } = splitPaymentNote(paymentNote)
+  const recurrence = buildRecurrenceDetail(input, content)
   const accentBar = [styles.paymentAccent, { backgroundColor: accent }]
 
   return (
@@ -772,7 +796,26 @@ function PaymentTermsBlock({
         </View>
       </View>
 
-      {recurrenceLine ? (
+      {recurrence ? (
+        <>
+          <View style={styles.paymentDivider} />
+          <View style={styles.paymentRow}>
+            <View style={accentBar} />
+            <View style={styles.paymentContent}>
+              <Text style={styles.paymentLabel}>Recorrência</Text>
+              {recurrence.title ? (
+                <Text style={styles.recurrenceMeta}>{recurrence.title}</Text>
+              ) : null}
+              <RichPaymentText text={recurrence.amountLine} />
+              {recurrence.description ? (
+                <Text style={[styles.recurrenceMeta, { marginTop: 8, marginBottom: 0 }]}>
+                  {recurrence.description}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        </>
+      ) : recurrenceLine ? (
         <>
           <View style={styles.paymentDivider} />
           <View style={styles.paymentRow}>
@@ -821,7 +864,9 @@ function ExtrasBlock({ items, accent }: { items: ProposalExtraItem[]; accent: st
             <View style={styles.extrasRow}>
               <View style={[styles.paymentAccent, { backgroundColor: accent }]} />
               <Text style={styles.extrasTitle}>{item.title}</Text>
-              <Text style={styles.extrasValue}>{formatExtraValue(item.amountCents)}</Text>
+              <Text style={styles.extrasValue}>
+                {formatExtraValue(item.amountCents, item.recurring)}
+              </Text>
             </View>
           </View>
         ))}
@@ -907,6 +952,64 @@ function Watermark({
   )
 }
 
+function sectionStartsNewPage(breaks: ProposalPageBreaks | undefined, id: ProposalSectionId): boolean {
+  return breaks?.[id] === true
+}
+
+function groupSectionsByPageBreaks(
+  sections: { id: ProposalSectionId; node: ReactElement }[],
+  breaks: ProposalPageBreaks | undefined,
+): { id: ProposalSectionId; node: ReactElement }[][] {
+  const pages: { id: ProposalSectionId; node: ReactElement }[][] = []
+  let current: { id: ProposalSectionId; node: ReactElement }[] = []
+
+  for (const section of sections) {
+    if (sectionStartsNewPage(breaks, section.id) && current.length > 0) {
+      pages.push(current)
+      current = []
+    }
+    current.push(section)
+  }
+
+  if (current.length > 0) {
+    pages.push(current)
+  }
+
+  return pages
+}
+
+function HowItWorksTable({
+  rows,
+}: {
+  rows: ProposalContentDoc['howItWorks']
+}) {
+  const stageWidth = stageColumnWidth(rows.map((row) => row.stage))
+  const descWidth = CONTENT_W - stageWidth
+
+  return (
+    <View style={styles.table}>
+      <View style={styles.tableHeader}>
+        <View style={[styles.tableCellStageWrap, { width: stageWidth, backgroundColor: DARK }]}>
+          <Text style={styles.tableHeaderCell}>Etapa</Text>
+        </View>
+        <View style={[styles.tableCellDescWrap, { width: descWidth, backgroundColor: DARK }]}>
+          <Text style={styles.tableHeaderCell}>Descrição</Text>
+        </View>
+      </View>
+      {rows.map((row, index) => (
+        <View key={`${row.stage}-${index}`} style={styles.tableRow}>
+          <View style={[styles.tableCellStageWrap, { width: stageWidth }]}>
+            <Text style={styles.tableCellStage}>{row.stage}</Text>
+          </View>
+          <View style={[styles.tableCellDescWrap, { width: descWidth }]}>
+            <Text style={styles.tableCell}>{row.description}</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  )
+}
+
 function ContentPages({
   input,
   content,
@@ -916,37 +1019,45 @@ function ContentPages({
   content: ProposalContentDoc
   accent: string
 }) {
-  const stampSrc = input.markDataUrl
   const extraItems = resolveExtraItems(input)
+  const breaks = content.pageBreaks
 
-  return (
-    <Page size={[PAGE_W, PAGE_H]} style={styles.pageLight} wrap>
-      {stampSrc ? (
-        <Watermark src={stampSrc} anchor={input.markAnchor} scale={input.markScale} />
-      ) : null}
-
-      <View>
-        <SectionHeading title="Sobre a Empresa" accent={accent} />
-        <Text style={styles.aboutText}>{content.aboutText}</Text>
-      </View>
-
-      <View style={styles.sectionBlock}>
-        <SectionHeading title="O que está incluso" accent={accent} />
-        <View style={styles.includedCard} wrap={false}>
-          {content.includedItems.map((item, index) => (
-            <View key={`${item}-${index}`}>
-              {index > 0 ? <View style={styles.includedDivider} /> : null}
-              <View style={styles.includedRow}>
-                <CheckIcon />
-                <Text style={styles.includedText}>{item}</Text>
-              </View>
-            </View>
-          ))}
+  const sections: { id: ProposalSectionId; node: ReactElement }[] = [
+    {
+      id: 'about',
+      node: (
+        <View key="about">
+          <SectionHeading title="Sobre a Empresa" accent={accent} />
+          <Text style={styles.aboutText}>{content.aboutText}</Text>
         </View>
-      </View>
+      ),
+    },
+    {
+      id: 'included',
+      node: (
+        <View key="included">
+          <SectionHeading title="O que está incluso" accent={accent} />
+          <View style={styles.includedCard} wrap={false}>
+            {content.includedItems.map((item, index) => (
+              <View key={`${item}-${index}`}>
+                {index > 0 ? <View style={styles.includedDivider} /> : null}
+                <View style={styles.includedRow}>
+                  <CheckIcon />
+                  <Text style={styles.includedText}>{item}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+      ),
+    },
+  ]
 
-      {content.prerequisiteBody ? (
-        <View style={styles.prerequisiteBlock} wrap={false}>
+  if (content.prerequisiteBody) {
+    sections.push({
+      id: 'prerequisite',
+      node: (
+        <View key="prerequisite" wrap={false}>
           <View style={[styles.prerequisiteBadge, { backgroundColor: accent }]}>
             <Text style={styles.prerequisiteBadgeText}>PRÉ-REQUISITO DO PROJETO</Text>
           </View>
@@ -963,53 +1074,52 @@ function ContentPages({
               </View>
             ))}
         </View>
-      ) : null}
+      ),
+    })
+  }
 
-      <View style={styles.sectionBlock} wrap={false}>
+  sections.push({
+    id: 'howItWorks',
+    node: (
+      <View key="howItWorks" wrap={false}>
         <SectionHeading title="Como funciona na prática" accent={accent} />
-        {(() => {
-          const stageWidth = stageColumnWidth(content.howItWorks.map((row) => row.stage))
-          const descWidth = CONTENT_W - stageWidth
-
-          return (
-            <View style={styles.table}>
-              <View style={styles.tableHeader}>
-                <View style={[styles.tableCellStageWrap, { width: stageWidth, backgroundColor: DARK }]}>
-                  <Text style={styles.tableHeaderCell}>Etapa</Text>
-                </View>
-                <View style={[styles.tableCellDescWrap, { width: descWidth, backgroundColor: DARK }]}>
-                  <Text style={styles.tableHeaderCell}>Descrição</Text>
-                </View>
-              </View>
-              {content.howItWorks.map((row, index) => (
-                <View key={`${row.stage}-${index}`} style={styles.tableRow}>
-                  <View style={[styles.tableCellStageWrap, { width: stageWidth }]}>
-                    <Text style={styles.tableCellStage}>{row.stage}</Text>
-                  </View>
-                  <View style={[styles.tableCellDescWrap, { width: descWidth }]}>
-                    <Text style={styles.tableCell}>{row.description}</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          )
-        })()}
+        <HowItWorksTable rows={content.howItWorks} />
       </View>
+    ),
+  })
 
-      <View style={styles.sectionBlock}>
+  sections.push({
+    id: 'investment',
+    node: (
+      <View key="investment">
         <SectionHeading title="Investimento" accent={accent} />
         <InvestmentBlock rows={content.investmentRows} accent={accent} />
-        <PaymentTermsBlock paymentNote={content.paymentNote} accent={accent} />
+        <PaymentTermsBlock
+          paymentNote={content.paymentNote}
+          input={input}
+          content={content}
+          accent={accent}
+        />
       </View>
+    ),
+  })
 
-      {extraItems.length > 0 ? (
-        <View style={styles.sectionBlock}>
+  if (extraItems.length > 0) {
+    sections.push({
+      id: 'extras',
+      node: (
+        <View key="extras">
           <SectionHeading title="Adicionais" accent={accent} />
           <ExtrasBlock items={extraItems} accent={accent} />
         </View>
-      ) : null}
+      ),
+    })
+  }
 
-      <View style={styles.sectionBlock}>
+  sections.push({
+    id: 'nextSteps',
+    node: (
+      <View key="nextSteps">
         <SectionHeading title="Próximos passos" accent={accent} />
         {content.nextSteps.map((step, index) => (
           <View key={`${step}-${index}`} style={styles.stepRow} wrap={false}>
@@ -1022,6 +1132,54 @@ function ContentPages({
           </View>
         ))}
       </View>
+    ),
+  })
+
+  const pages = groupSectionsByPageBreaks(sections, breaks)
+
+  return pages
+}
+
+function ContentPage({
+  group,
+  input,
+  content,
+  accent,
+}: {
+  group: { id: ProposalSectionId; node: ReactElement }[]
+  input: ProposalFormInput
+  content: ProposalContentDoc
+  accent: string
+}) {
+  const stampSrc = input.markDataUrl
+  const breaks = content.pageBreaks
+
+  return (
+    <Page size={[PAGE_W, PAGE_H]} style={styles.pageLight} wrap>
+      {stampSrc ? (
+        <Watermark src={stampSrc} anchor={input.markAnchor} scale={input.markScale} />
+      ) : null}
+
+      {group.map((section, sectionIndex) => {
+        const isFirstOnPage = sectionIndex === 0
+        const keepTogether =
+          sectionStartsNewPage(breaks, section.id) && section.id !== 'about'
+        const spaced =
+          section.id === 'prerequisite'
+            ? [
+                styles.prerequisiteBlock,
+                isFirstOnPage ? { marginTop: 0 } : null,
+              ]
+            : isFirstOnPage
+              ? undefined
+              : styles.sectionBlock
+
+        return (
+          <View key={section.id} style={spaced} wrap={!keepTogether}>
+            {section.node}
+          </View>
+        )
+      })}
 
       <PageFooter companyName={input.companyName} websiteUrl={input.websiteUrl} accent={accent} />
     </Page>
@@ -1074,11 +1232,20 @@ export function ProposalPdfDocument({
   content: ProposalContentDoc
 }) {
   const accent = normalizeAccentColor(input.accentColor)
+  const groups = ContentPages({ input, content, accent })
 
   return (
     <Document>
       <CoverPage input={input} content={content} accent={accent} />
-      <ContentPages input={input} content={content} accent={accent} />
+      {groups.map((group, pageIndex) => (
+        <ContentPage
+          key={`content-${pageIndex}`}
+          group={group}
+          input={input}
+          content={content}
+          accent={accent}
+        />
+      ))}
       <ClosingPage input={input} content={content} accent={accent} />
     </Document>
   )

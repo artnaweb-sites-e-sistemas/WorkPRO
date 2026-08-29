@@ -113,6 +113,8 @@ export interface ProposalExtraItem {
   amountCents: number
   /** 'ai' = veio da IA e pode ser substituído numa nova geração; 'manual' = preservado */
   source: 'ai' | 'manual'
+  /** quando true, o valor sai no PDF como R$ x,00/mês */
+  recurring: boolean
 }
 
 export interface ProposalExtras {
@@ -137,7 +139,12 @@ export function normalizeExtras(raw: unknown): ProposalExtras {
   const items = Array.isArray(record.items)
     ? record.items
         .map((item) => {
-          const entry = item as { title?: unknown; amountCents?: unknown; source?: unknown }
+          const entry = item as {
+            title?: unknown
+            amountCents?: unknown
+            source?: unknown
+            recurring?: unknown
+          }
           return {
             title: typeof entry.title === 'string' ? entry.title.trim() : '',
             amountCents:
@@ -145,6 +152,7 @@ export function normalizeExtras(raw: unknown): ProposalExtras {
                 ? Math.round(entry.amountCents)
                 : 0,
             source: entry.source === 'ai' ? ('ai' as const) : ('manual' as const),
+            recurring: entry.recurring === true,
           }
         })
         .filter((item) => item.title.length > 0)
@@ -163,6 +171,10 @@ export interface ProposalRecurrence {
   amountCents: number | null
   /** quando começa a recorrência; null quando enabled === false */
   startTiming: RecurrenceStartTiming | null
+  /** nome do serviço mensal (ex.: Hospedagem e manutenção); null quando enabled === false */
+  title: string | null
+  /** o que a recorrência cobre; gerado pela IA, editável; null quando enabled === false */
+  description: string | null
 }
 
 /** Dados fixos que persistem entre propostas — users/{uid}/settings/proposalDefaults */
@@ -228,9 +240,41 @@ export interface ProposalAiContent {
   setupLabel: string
   /** rótulo da linha de recorrência; usado só quando recurrence.enabled */
   recurringLabel: string
+  /** texto explicando o que a recorrência cobre; vazio quando desligada */
+  recurringDescription: string
   /** passos de execução do projeto, SEM passos de pagamento (o sistema monta esses) */
   projectSteps: string[]
   closingParagraph: string
+}
+
+export const PROPOSAL_SECTION_IDS = [
+  'about',
+  'included',
+  'prerequisite',
+  'howItWorks',
+  'investment',
+  'extras',
+  'nextSteps',
+] as const
+
+export type ProposalSectionId = (typeof PROPOSAL_SECTION_IDS)[number]
+
+/** Quando true, a seção começa numa página nova do PDF. */
+export type ProposalPageBreaks = Partial<Record<ProposalSectionId, boolean>>
+
+export function normalizePageBreaks(raw: unknown): ProposalPageBreaks {
+  if (!raw || typeof raw !== 'object') {
+    return {}
+  }
+
+  const record = raw as Record<string, unknown>
+  const next: ProposalPageBreaks = {}
+  for (const id of PROPOSAL_SECTION_IDS) {
+    if (record[id] === true) {
+      next[id] = true
+    }
+  }
+  return next
 }
 
 /** IA + campos derivados deterministicamente pelo sistema */
@@ -238,6 +282,7 @@ export interface ProposalContentDoc extends ProposalAiContent {
   investmentRows: { label: string; value: string }[]
   paymentNote: string
   nextSteps: string[]
+  pageBreaks: ProposalPageBreaks
 }
 
 export interface ProposalDoc {

@@ -1,12 +1,13 @@
-import { Button, Input, Textarea } from './ui'
+import { Button, Input, Switch, Textarea } from './ui'
 import { ProposalExtrasFields } from './ProposalExtrasFields'
 import type { ExtraDraft } from './ProposalExtrasFields'
-import type { ProposalAiContent } from '../types/proposalDoc'
+import type { ProposalAiContent, ProposalPageBreaks, ProposalSectionId } from '../types/proposalDoc'
 
 interface ProposalContentEditorProps {
   value: ProposalAiContent
   onChange: (next: ProposalAiContent) => void
-  showRecurringLabel: boolean
+  pageBreaks: ProposalPageBreaks
+  onPageBreaksChange: (next: ProposalPageBreaks) => void
   /** quando presente, renderiza a lista de adicionais dentro do editor */
   extras?: {
     items: ExtraDraft[]
@@ -16,10 +17,36 @@ interface ProposalContentEditorProps {
   }
 }
 
+function SectionBreakSwitch({
+  section,
+  pageBreaks,
+  onPageBreaksChange,
+}: {
+  section: ProposalSectionId
+  pageBreaks: ProposalPageBreaks
+  onPageBreaksChange: (next: ProposalPageBreaks) => void
+}) {
+  return (
+    <Switch
+      id={`page-break-${section}`}
+      label="Quebrar página"
+      labelPosition="before"
+      checked={pageBreaks[section] === true}
+      onChange={(checked) =>
+        onPageBreaksChange({
+          ...pageBreaks,
+          [section]: checked,
+        })
+      }
+    />
+  )
+}
+
 export function ProposalContentEditor({
   value,
   onChange,
-  showRecurringLabel,
+  pageBreaks,
+  onPageBreaksChange,
   extras,
 }: ProposalContentEditorProps) {
   function patch(partial: Partial<ProposalAiContent>) {
@@ -75,12 +102,21 @@ export function ProposalContentEditor({
     patch({ includedItems: [...value.includedItems, ''] })
   }
 
+  const breakSwitch = (section: ProposalSectionId) => (
+    <SectionBreakSwitch
+      section={section}
+      pageBreaks={pageBreaks}
+      onPageBreaksChange={onPageBreaksChange}
+    />
+  )
+
   return (
     <div className="space-y-6 border-2 border-border bg-surface p-5 sm:p-6">
       <div>
         <p className="text-sm font-semibold text-foreground">Editar textos da proposta</p>
         <p className="mt-1 text-xs normal-case text-muted-foreground">
-          Ajuste o que a IA gerou. Ao desligar o switch, o PDF atualiza com essas alterações.
+          Ajuste o que a IA gerou. Quebrar página manda aquela seção para a próxima folha do
+          PDF. Ao desligar o switch Editar, o PDF atualiza.
         </p>
       </div>
 
@@ -96,24 +132,33 @@ export function ProposalContentEditor({
         onChange={(event) => patch({ projectSubtitle: event.target.value })}
       />
 
-      <Textarea
-        label="Sobre o projeto"
-        value={value.aboutText}
-        onChange={(event) => patch({ aboutText: event.target.value })}
-        rows={5}
-      />
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="kinetic-label">Sobre o projeto</p>
+          {breakSwitch('about')}
+        </div>
+        <Textarea
+          aria-label="Sobre o projeto"
+          value={value.aboutText}
+          onChange={(event) => patch({ aboutText: event.target.value })}
+          rows={5}
+        />
+      </div>
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <p className="kinetic-label">Itens inclusos</p>
             <span className="text-xs font-semibold tabular-nums text-muted-foreground">
               {value.includedItems.length}
             </span>
           </div>
-          <Button type="button" variant="secondary" size="sm" onClick={addIncludedItem}>
-            + Item
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" variant="secondary" size="sm" onClick={addIncludedItem}>
+              + Item
+            </Button>
+            {breakSwitch('included')}
+          </div>
         </div>
 
         {value.includedItems.length === 0 ? (
@@ -157,24 +202,33 @@ export function ProposalContentEditor({
         )}
       </div>
 
-      <Textarea
-        label="Pré-requisitos"
-        value={value.prerequisiteBody ?? ''}
-        onChange={(event) =>
-          patch({
-            prerequisiteBody: event.target.value.trim() ? event.target.value : null,
-          })
-        }
-        rows={4}
-        hint="Um pré-requisito por linha. Deixe vazio se não houver."
-      />
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="kinetic-label">Pré-requisitos</p>
+          {breakSwitch('prerequisite')}
+        </div>
+        <Textarea
+          aria-label="Pré-requisitos"
+          value={value.prerequisiteBody ?? ''}
+          onChange={(event) =>
+            patch({
+              prerequisiteBody: event.target.value.trim() ? event.target.value : null,
+            })
+          }
+          rows={4}
+          hint="Um pré-requisito por linha. Deixe vazio se não houver."
+        />
+      </div>
 
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="kinetic-label">Como funciona</p>
-          <Button type="button" variant="secondary" size="sm" onClick={addHowItWorks}>
-            Adicionar etapa
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" variant="secondary" size="sm" onClick={addHowItWorks}>
+              Adicionar etapa
+            </Button>
+            {breakSwitch('howItWorks')}
+          </div>
         </div>
         {value.howItWorks.length === 0 ? (
           <p className="text-xs normal-case text-muted-foreground">Nenhuma etapa ainda.</p>
@@ -214,38 +268,42 @@ export function ProposalContentEditor({
         )}
       </div>
 
-      <Input
-        label="Rótulo do investimento (setup)"
-        value={value.setupLabel}
-        onChange={(event) => patch({ setupLabel: event.target.value })}
-      />
-
-      {showRecurringLabel ? (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="kinetic-label">Investimento</p>
+          {breakSwitch('investment')}
+        </div>
         <Input
-          label="Rótulo da recorrência"
-          value={value.recurringLabel}
-          onChange={(event) => patch({ recurringLabel: event.target.value })}
+          label="Rótulo do investimento (setup)"
+          value={value.setupLabel}
+          onChange={(event) => patch({ setupLabel: event.target.value })}
         />
-      ) : null}
+      </div>
 
       {extras ? (
         <div>
-          <p className="kinetic-label mb-2">Adicionais</p>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+            <p className="kinetic-label">Adicionais</p>
+            {breakSwitch('extras')}
+          </div>
           <ProposalExtrasFields {...extras} />
         </div>
       ) : null}
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <p className="kinetic-label">Passos do projeto</p>
             <span className="text-xs font-semibold tabular-nums text-muted-foreground">
               {value.projectSteps.length}
             </span>
           </div>
-          <Button type="button" variant="secondary" size="sm" onClick={addProjectStep}>
-            Adicionar passo
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" variant="secondary" size="sm" onClick={addProjectStep}>
+              Adicionar passo
+            </Button>
+            {breakSwitch('nextSteps')}
+          </div>
         </div>
 
         {value.projectSteps.length === 0 ? (

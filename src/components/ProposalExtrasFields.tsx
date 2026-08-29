@@ -8,6 +8,7 @@ export interface ExtraDraft {
   title: string
   amountDisplay: string
   source: 'ai' | 'manual'
+  recurring: boolean
 }
 
 interface ProposalExtrasFieldsProps {
@@ -63,7 +64,7 @@ export function ProposalExtrasFields({
   }
 
   function add() {
-    onChange([...items, { title: '', amountDisplay: '', source: 'manual' }])
+    onChange([...items, { title: '', amountDisplay: '', source: 'manual', recurring: false }])
   }
 
   function handleDragStart(index: number) {
@@ -171,6 +172,25 @@ export function ProposalExtrasFields({
                 />
                 <button
                   type="button"
+                  aria-pressed={item.recurring}
+                  onClick={() => update(index, { recurring: !item.recurring })}
+                  aria-label={
+                    item.recurring
+                      ? `Marcar adicional ${index + 1} como valor único`
+                      : `Marcar adicional ${index + 1} como mensal`
+                  }
+                  title={item.recurring ? 'Mensal' : 'Valor único'}
+                  className={cn(
+                    'shrink-0 border-2 px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition-colors duration-150',
+                    item.recurring
+                      ? 'border-accent bg-accent text-accent-foreground'
+                      : 'border-border text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  Mensal
+                </button>
+                <button
+                  type="button"
                   onClick={() => remove(index)}
                   aria-label={`Remover adicional ${index + 1}`}
                   title="Remover adicional"
@@ -195,8 +215,8 @@ export function ProposalExtrasFields({
 
       <p className="text-xs normal-case text-muted-foreground">
         {aiSuggest
-          ? 'A IA vai criar os adicionais ao gerar a proposta. Itens que você digitar aqui são preservados.'
-          : 'Sem valor, o item sai como "Sob consulta". A seção fica entre Investimento e Próximos passos.'}
+          ? 'A IA vai criar os adicionais ao gerar a proposta. Itens que você digitar aqui são preservados. Marque Mensal para o valor sair como R$ x,00/mês.'
+          : 'Sem valor, o item sai como "Sob consulta". Marque Mensal para o valor aparecer como R$ x,00/mês.'}
         {items.length > 1 ? ' Arraste pelo ícone para reordenar.' : null}
       </p>
     </div>

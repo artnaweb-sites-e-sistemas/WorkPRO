@@ -4,9 +4,10 @@ import type {
   ProposalContentDoc,
   ProposalExtraItem,
   ProposalFormInput,
+  ProposalPageBreaks,
   RecurrenceStartTiming,
 } from '../types/proposalDoc'
-import { formatRecurrenceStartTiming } from '../types/proposalDoc'
+import { formatRecurrenceStartTiming, normalizePageBreaks } from '../types/proposalDoc'
 
 function installmentChannelLabel(kind: 'boleto' | 'cartao' | null): string {
   return kind === 'cartao' ? 'no cartão de crédito' : 'no boleto'
@@ -24,30 +25,40 @@ function formatRecurrenceStartPhrase(timing: RecurrenceStartTiming): string {
 }
 
 export function buildPaymentNote(input: ProposalFormInput): string {
-  const { amountCents, payment, recurrence } = input
+  const { amountCents, payment } = input
   const total = formatCurrencyBRL(amountCents)
 
-  let note: string
-
   if (payment.method === 'avista') {
-    note = `${total} à vista, na contratação.`
-  } else if (payment.method === 'metade' || payment.method === 'metade_conclusao') {
+    return `${total} à vista, na contratação.`
+  }
+
+  if (payment.method === 'metade' || payment.method === 'metade_conclusao') {
     const first = Math.round(amountCents / 2)
     const second = amountCents - first
     const secondWhen =
       payment.method === 'metade_conclusao' ? 'após a conclusão' : 'em 30 dias'
-    note = `${formatCurrencyBRL(first)} na contratação e ${formatCurrencyBRL(second)} ${secondWhen}.`
-  } else {
-    const n = payment.installments ?? 3
-    const parcela = Math.floor(amountCents / n)
-    note = `${n}x de ${formatCurrencyBRL(parcela)} ${installmentChannelLabel(payment.installmentKind)}.`
+    return `${formatCurrencyBRL(first)} na contratação e ${formatCurrencyBRL(second)} ${secondWhen}.`
   }
 
-  if (recurrence.enabled && recurrence.amountCents != null && recurrence.startTiming) {
-    note += `\n${formatCurrencyBRL(recurrence.amountCents)}/mês, ${formatRecurrenceStartPhrase(recurrence.startTiming)}.`
+  const n = payment.installments ?? 3
+  const parcela = Math.floor(amountCents / n)
+  return `${n}x de ${formatCurrencyBRL(parcela)} ${installmentChannelLabel(payment.installmentKind)}.`
+}
+
+export function buildRecurrenceDetail(
+  input: ProposalFormInput,
+  ai: ProposalAiContent,
+): { title: string; amountLine: string; description: string } | null {
+  const { recurrence } = input
+  if (!recurrence.enabled || recurrence.amountCents == null || !recurrence.startTiming) {
+    return null
   }
 
-  return note
+  return {
+    title: recurrence.title?.trim() || ai.recurringLabel,
+    amountLine: `${formatCurrencyBRL(recurrence.amountCents)}/mês, ${formatRecurrenceStartPhrase(recurrence.startTiming)}.`,
+    description: recurrence.description?.trim() || ai.recurringDescription?.trim() || '',
+  }
 }
 
 /**
@@ -67,8 +78,9 @@ export function buildInvestmentRows(
   ]
 
   if (input.recurrence.enabled && input.recurrence.amountCents != null) {
+    const label = input.recurrence.title?.trim() || ai.recurringLabel
     rows.push({
-      label: ai.recurringLabel,
+      label,
       value: `${formatCurrencyBRL(input.recurrence.amountCents)} / mês`,
     })
   }
@@ -110,6 +122,7 @@ export function buildNextSteps(input: ProposalFormInput, ai: ProposalAiContent):
 export function buildProposalContent(
   input: ProposalFormInput,
   ai: ProposalAiContent,
+  pageBreaks: ProposalPageBreaks = {},
 ): ProposalContentDoc {
   const normalized: ProposalAiContent = {
     ...ai,
@@ -121,6 +134,7 @@ export function buildProposalContent(
     investmentRows: buildInvestmentRows(input, normalized),
     paymentNote: buildPaymentNote(input),
     nextSteps: buildNextSteps(input, normalized),
+    pageBreaks: normalizePageBreaks(pageBreaks),
   }
 }
 
@@ -135,7 +149,11 @@ export function describeRecurrenceForAi(input: ProposalFormInput): string {
     return 'desativada'
   }
 
-  return `${formatCurrencyBRL(recurrence.amountCents)} por mês ${formatRecurrenceStartPhrase(recurrence.startTiming)}`
+  const service = recurrence.title?.trim()
+  const amount = `${formatCurrencyBRL(recurrence.amountCents)} por mês ${formatRecurrenceStartPhrase(recurrence.startTiming)}`
+  const head = service ? `${service}: ${amount}` : amount
+  const description = recurrence.description?.trim()
+  return description ? `${head}. ${description}` : head
 }
 
 /** Adicionais válidos para impressão: precisam de título; valor 0 vira "Sob consulta". */
@@ -149,12 +167,18 @@ export function resolveExtraItems(input: ProposalFormInput): ProposalExtraItem[]
       title: item.title.trim(),
       amountCents: item.amountCents,
       source: item.source === 'ai' ? ('ai' as const) : ('manual' as const),
+      recurring: item.recurring === true,
     }))
     .filter((item) => item.title.length > 0)
 }
 
-export function formatExtraValue(amountCents: number): string {
-  return amountCents > 0 ? formatCurrencyBRL(amountCents) : 'Sob consulta'
+export function formatExtraValue(amountCents: number, recurring = false): string {
+  if (amountCents <= 0) {
+    return 'Sob consulta'
+  }
+
+  const amount = formatCurrencyBRL(amountCents)
+  return recurring ? `${amount}/mês` : amount
 }
 
 /** Frase de contexto dos adicionais para o prompt da IA (não vai para o PDF). */
@@ -164,7 +188,9 @@ export function describeExtrasForAi(input: ProposalFormInput): string {
     return 'nenhum'
   }
 
-  return items.map((item) => `${item.title} (${formatExtraValue(item.amountCents)})`).join('; ')
+  return items
+    .map((item) => `${item.title} (${formatExtraValue(item.amountCents, item.recurring)})`)
+    .join('; ')
 }
 
 export function formatValidityLabel(days: number): string {

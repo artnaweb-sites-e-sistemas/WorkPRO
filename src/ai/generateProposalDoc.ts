@@ -37,9 +37,12 @@ o layout. Conte os caracteres antes de responder e reescreva se passar.
   ex: "Catálogo", "Desenvolvimento", "Checkout", "Manutenção"). description MÁXIMO 120 caracteres.
 - setupLabel: rótulo da linha de investimento do projeto. MÁXIMO 60 caracteres.
   Ex: "Desenvolvimento da plataforma (setup)"
-- recurringLabel: rótulo da linha de recorrência mensal. MÁXIMO 70 caracteres.
-  Ex: "Manutenção mensal (hospedagem, monitoramento, atualizações e suporte)"
+- recurringLabel: rótulo curto da linha de recorrência na tabela de investimento. MÁXIMO 70 caracteres.
+  Ex: "Hospedagem, suporte e manutenção"
   Preencha sempre, mesmo que a recorrência esteja desligada (o sistema descarta).
+- recurringDescription: o que a recorrência mensal cobre, em 1 ou 2 frases. MÁXIMO 180 caracteres.
+  Baseie-se no TÍTULO informado em RECORRÊNCIA e no contexto do projeto. Sem valores, sem "R$",
+  sem repetir o título palavra por palavra. Se a recorrência estiver desligada, string vazia.
 - projectSteps: de 2 a 4 passos de EXECUÇÃO. Cada um MÁXIMO 70 caracteres.
   Se a proposta atual já vier com passos escritos pelo usuário, PRESERVE todos eles
   (inclusive quando forem mais de 4) e só mexa no que o ajuste pedir.
@@ -83,6 +86,7 @@ const PROPOSAL_DOC_SCHEMA = {
     },
     setupLabel: { type: SchemaType.STRING },
     recurringLabel: { type: SchemaType.STRING },
+    recurringDescription: { type: SchemaType.STRING },
     projectSteps: {
       type: SchemaType.ARRAY,
       items: { type: SchemaType.STRING },
@@ -98,6 +102,7 @@ const PROPOSAL_DOC_SCHEMA = {
     'howItWorks',
     'setupLabel',
     'recurringLabel',
+    'recurringDescription',
     'projectSteps',
     'closingParagraph',
   ],
@@ -186,6 +191,7 @@ function parseProposalAiContent(raw: string): ProposalAiContent {
         asString(parsed.recurringLabel, 'Manutenção mensal (hospedagem, monitoramento, atualizações e suporte)'),
         70,
       ),
+      recurringDescription: hardTruncate(asString(parsed.recurringDescription), 180),
       projectSteps:
         projectSteps.length > 0
           ? projectSteps
@@ -213,6 +219,7 @@ function parseProposalAiContent(raw: string): ProposalAiContent {
       ],
       setupLabel: 'Desenvolvimento do projeto (setup)',
       recurringLabel: 'Manutenção mensal (hospedagem, monitoramento, atualizações e suporte)',
+      recurringDescription: '',
       projectSteps: [
         'Preenchimento do briefing com materiais',
         'Desenvolvimento e entrega no prazo combinado',
@@ -305,6 +312,7 @@ export async function generateExtraSuggestions(
           typeof item.amountReais === 'number' && item.amountReais > 0
             ? Math.round(item.amountReais * 100)
             : 0,
+        recurring: false,
       }))
       .filter((item) => item.title.length > 0)
       .slice(0, 4)

@@ -33,6 +33,7 @@ import type {
   ProposalExtraItem,
   ProposalExtras,
   ProposalFormInput,
+  ProposalPageBreaks,
   ProposalPaymentTerms,
   ProposalRecurrence,
   RecurrenceStartTiming,
@@ -46,6 +47,7 @@ import {
   normalizeExtras,
   normalizeMarkAnchor,
   normalizeMarkScale,
+  normalizePageBreaks,
 } from '../types/proposalDoc'
 
 function extrasToDrafts(items: ProposalExtraItem[]): ExtraDraft[] {
@@ -53,6 +55,7 @@ function extrasToDrafts(items: ProposalExtraItem[]): ExtraDraft[] {
     title: item.title,
     amountDisplay: item.amountCents > 0 ? formatCurrencyBRL(item.amountCents) : '',
     source: item.source === 'ai' ? 'ai' : 'manual',
+    recurring: item.recurring === true,
   }))
 }
 
@@ -66,6 +69,7 @@ function extractAiContent(content: ProposalContentDoc): ProposalAiContent {
     howItWorks: content.howItWorks,
     setupLabel: content.setupLabel,
     recurringLabel: content.recurringLabel,
+    recurringDescription: content.recurringDescription ?? '',
     projectSteps: content.projectSteps,
     closingParagraph: content.closingParagraph,
   }
@@ -77,7 +81,7 @@ function sanitizeFilename(value: string): string {
 
 function normalizeRecurrenceFromDoc(raw: ProposalRecurrence & { firstPaymentDate?: string | null }): ProposalRecurrence {
   if (!raw.enabled) {
-    return { enabled: false, amountCents: null, startTiming: null }
+    return { enabled: false, amountCents: null, startTiming: null, title: null, description: null }
   }
 
   const timing = raw.startTiming ?? 'ato_contratacao'
@@ -86,6 +90,28 @@ function normalizeRecurrenceFromDoc(raw: ProposalRecurrence & { firstPaymentDate
     enabled: true,
     amountCents: raw.amountCents,
     startTiming: timing,
+    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : '',
+    description:
+      typeof raw.description === 'string' && raw.description.trim() ? raw.description.trim() : '',
+  }
+}
+
+function withAiRecurrenceDescription(
+  input: ProposalFormInput,
+  ai: ProposalAiContent,
+): ProposalFormInput {
+  if (!input.recurrence.enabled) {
+    return input
+  }
+
+  const description = ai.recurringDescription?.trim() || input.recurrence.description?.trim() || null
+
+  return {
+    ...input,
+    recurrence: {
+      ...input.recurrence,
+      description,
+    },
   }
 }
 
@@ -136,6 +162,9 @@ function getPendingMessage(input: ProposalFormInput): string | null {
   if (input.recurrence.enabled && (input.recurrence.amountCents == null || input.recurrence.amountCents <= 0)) {
     return 'Falta o valor mensal da recorrência'
   }
+  if (input.recurrence.enabled && !input.recurrence.title?.trim()) {
+    return 'Falta o título do serviço recorrente'
+  }
   if (!input.validityDays || input.validityDays < 1) {
     return 'Falta a validade da proposta'
   }
@@ -161,6 +190,8 @@ export default function NewProposal() {
   const [installmentKind, setInstallmentKind] = useState<InstallmentKind>('boleto')
   const [recurrenceEnabled, setRecurrenceEnabled] = useState(false)
   const [recurrenceAmountDisplay, setRecurrenceAmountDisplay] = useState('')
+  const [recurrenceTitle, setRecurrenceTitle] = useState('')
+  const [recurrenceDescription, setRecurrenceDescription] = useState('')
   const [startTiming, setStartTiming] = useState<RecurrenceStartTiming>('ato_contratacao')
   const [extrasEnabled, setExtrasEnabled] = useState(false)
   const [extraDrafts, setExtraDrafts] = useState<ExtraDraft[]>([])
@@ -183,6 +214,7 @@ export default function NewProposal() {
   const [adjustment, setAdjustment] = useState('')
   const [editMode, setEditMode] = useState(false)
   const [savingEdits, setSavingEdits] = useState(false)
+  const [pageBreaks, setPageBreaks] = useState<ProposalPageBreaks>({})
 
   const payment: ProposalPaymentTerms = useMemo(
     () => ({
@@ -198,8 +230,10 @@ export default function NewProposal() {
       enabled: recurrenceEnabled,
       amountCents: recurrenceEnabled ? parseCurrencyBRL(recurrenceAmountDisplay) || null : null,
       startTiming: recurrenceEnabled ? startTiming : null,
+      title: recurrenceEnabled ? recurrenceTitle.trim() || null : null,
+      description: recurrenceEnabled ? recurrenceDescription.trim() || null : null,
     }),
-    [recurrenceEnabled, recurrenceAmountDisplay, startTiming],
+    [recurrenceEnabled, recurrenceAmountDisplay, startTiming, recurrenceTitle, recurrenceDescription],
   )
 
   const extras: ProposalExtras = useMemo(
@@ -212,6 +246,7 @@ export default function NewProposal() {
               title: draft.title.trim(),
               amountCents: parseCurrencyBRL(draft.amountDisplay),
               source: draft.source,
+              recurring: draft.recurring === true,
             }))
             .filter((item) => item.title.length > 0)
         : [],
@@ -242,8 +277,8 @@ export default function NewProposal() {
       return null
     }
     const ai = aiContent ?? extractAiContent(content)
-    return buildProposalContent(formInput, ai)
-  }, [content, aiContent, formInput])
+    return buildProposalContent(formInput, ai, pageBreaks)
+  }, [content, aiContent, formInput, pageBreaks])
 
   const pendingMessage = getPendingMessage(formInput)
   const canGenerate = !pendingMessage && !generating && !loadingDoc
@@ -297,7 +332,7 @@ export default function NewProposal() {
       clearTimeout(proposalSaveTimer.current)
     }
 
-    const built = buildProposalContent(formInput, ai)
+    const built = buildProposalContent(formInput, ai, pageBreaks)
 
     proposalSaveTimer.current = setTimeout(() => {
       void updateProposal(proposalId, { input: formInput, content: built })
@@ -316,7 +351,7 @@ export default function NewProposal() {
     }
     // content só entra para extrair AI na 1ª vez; mudanças de texto vêm de aiContent/formInput
     // eslint-disable-next-line react-hooks/exhaustive-deps -- evita loop ao setContent
-  }, [proposalId, formInput, aiContent, loadingDoc, generating])
+  }, [proposalId, formInput, aiContent, pageBreaks, loadingDoc, generating])
 
   const persistDefaults = useCallback((next: ProposalDefaults) => {
     if (defaultsSaveTimer.current) {
@@ -446,6 +481,13 @@ export default function NewProposal() {
             ? formatCurrencyBRL(normalizedRecurrence.amountCents)
             : '',
         )
+        setRecurrenceTitle(normalizedRecurrence.title ?? '')
+        setRecurrenceDescription(
+          normalizedRecurrence.description
+            || (typeof doc.content.recurringDescription === 'string'
+              ? doc.content.recurringDescription
+              : ''),
+        )
         setStartTiming(normalizedRecurrence.startTiming ?? 'ato_contratacao')
         const normalizedExtras = normalizeExtras(doc.input.extras)
         setExtrasEnabled(normalizedExtras.enabled)
@@ -456,6 +498,7 @@ export default function NewProposal() {
         setProposalStatus(doc.status ?? 'ativo')
         setContent(doc.content)
         setAiContent(extractAiContent(doc.content))
+        setPageBreaks(normalizePageBreaks(doc.content.pageBreaks))
         setLoadingDoc(false)
         skipProposalPersist.current = true
 
@@ -593,9 +636,11 @@ export default function NewProposal() {
       const inputForGeneration = await withGeneratedExtras(formInput)
 
       const ai = await generateProposalAiContent(inputForGeneration)
-      const built = buildProposalContent(inputForGeneration, ai)
-      const id = await createProposal(inputForGeneration, built)
+      const input = withAiRecurrenceDescription(inputForGeneration, ai)
+      const built = buildProposalContent(input, ai, pageBreaks)
+      const id = await createProposal(input, built)
 
+      setRecurrenceDescription(input.recurrence.description ?? '')
       setAiContent(ai)
       setContent(built)
       setProposalId(id)
@@ -626,9 +671,11 @@ export default function NewProposal() {
         aiContent,
         adjustment.trim(),
       )
-      const built = buildProposalContent(inputForGeneration, ai)
-      await updateProposal(proposalId, { input: inputForGeneration, content: built })
+      const input = withAiRecurrenceDescription(inputForGeneration, ai)
+      const built = buildProposalContent(input, ai, pageBreaks)
+      await updateProposal(proposalId, { input, content: built })
 
+      setRecurrenceDescription(input.recurrence.description ?? '')
       setAiContent(ai)
       setContent(built)
       setAdjustment('')
@@ -673,7 +720,7 @@ export default function NewProposal() {
       includedItems: ai.includedItems.map((s) => s.trim()).filter(Boolean),
       projectSteps: ai.projectSteps.map((s) => s.trim()).filter(Boolean),
     }
-    const built = buildProposalContent(formInput, cleaned)
+    const built = buildProposalContent(formInput, cleaned, pageBreaks)
     setContent(built)
     setAiContent(cleaned)
 
@@ -1015,6 +1062,19 @@ export default function NewProposal() {
                 {recurrenceEnabled ? (
                   <div className="space-y-4">
                     <Input
+                      label="Título do serviço"
+                      value={recurrenceTitle}
+                      onChange={(event) => setRecurrenceTitle(event.target.value)}
+                      placeholder="Ex: Hospedagem e manutenção"
+                    />
+                    <Textarea
+                      label="Descrição"
+                      value={recurrenceDescription}
+                      onChange={(event) => setRecurrenceDescription(event.target.value)}
+                      placeholder="A IA preenche ao gerar a proposta. Você pode editar depois."
+                      rows={3}
+                    />
+                    <Input
                       label="Valor mensal"
                       inputMode="numeric"
                       value={recurrenceAmountDisplay}
@@ -1159,7 +1219,8 @@ export default function NewProposal() {
                   <ProposalContentEditor
                     value={aiContent}
                     onChange={setAiContent}
-                    showRecurringLabel={recurrenceEnabled}
+                    pageBreaks={pageBreaks}
+                    onPageBreaksChange={setPageBreaks}
                     extras={
                       extrasEnabled
                         ? {

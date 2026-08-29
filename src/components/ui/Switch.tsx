@@ -6,10 +6,20 @@ interface SwitchProps {
   label: string
   id?: string
   disabled?: boolean
+  /** `before` coloca o texto à esquerda do interruptor. */
+  labelPosition?: 'before' | 'after'
 }
 
-export function Switch({ checked, onChange, label, id, disabled }: SwitchProps) {
+export function Switch({
+  checked,
+  onChange,
+  label,
+  id,
+  disabled,
+  labelPosition = 'after',
+}: SwitchProps) {
   const switchId = id ?? label.toLowerCase().replace(/\s/g, '-')
+  const labelEl = <span className="kinetic-label">{label}</span>
 
   return (
     <label
@@ -19,6 +29,7 @@ export function Switch({ checked, onChange, label, id, disabled }: SwitchProps) 
         disabled && 'cursor-not-allowed opacity-50',
       )}
     >
+      {labelPosition === 'before' ? labelEl : null}
       <button
         id={switchId}
         type="button"
@@ -38,7 +49,7 @@ export function Switch({ checked, onChange, label, id, disabled }: SwitchProps) 
           )}
         />
       </button>
-      <span className="kinetic-label">{label}</span>
+      {labelPosition === 'after' ? labelEl : null}
     </label>
   )
 }
