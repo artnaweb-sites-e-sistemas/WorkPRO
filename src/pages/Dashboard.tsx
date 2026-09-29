@@ -3,14 +3,21 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ConversationCard } from '../components/ConversationCard'
 import { ProposalCard } from '../components/ProposalCard'
+import { PilotoCard } from '../components/PilotoCard'
 import { NewConversationModal } from '../components/NewConversationModal'
 import { ProfileSettingsModal } from '../components/ProfileSettingsModal'
 import { useAuth } from '../context/AuthContext'
 import { listConversations } from '../services/conversations'
 import { listProposals } from '../services/proposals'
+import { listPilotos } from '../services/pilotos'
 import type { Conversation, ConversationStatus, Stage } from '../types/models'
 import type { ProposalDoc, ProposalStatus } from '../types/proposalDoc'
-import { matchesConversationSearch, matchesProposalSearch } from '../lib/search'
+import type { PilotoDoc } from '../types/piloto'
+import {
+  matchesConversationSearch,
+  matchesPilotoSearch,
+  matchesProposalSearch,
+} from '../lib/search'
 import { staggerContainer, staggerItem } from '../lib/motion'
 import { cn } from '../lib/cn'
 import { Button, Card, Spinner } from '../components/ui'
@@ -18,11 +25,12 @@ import { Button, Card, Spinner } from '../components/ui'
 type StatusFilter = ConversationStatus | 'todos'
 type DashboardStageFilter = Exclude<Stage, 'videocall'>
 type StageFilter = DashboardStageFilter | 'todos'
-type HomeSection = 'conversas' | 'propostas'
+type HomeSection = 'conversas' | 'propostas' | 'pilotos'
 type ProposalStatusFilter = ProposalStatus | 'todos'
 
 const PAGE_SIZE = 5
 const PROPOSAL_PAGE_SIZE = 5
+const PILOTO_PAGE_SIZE = 5
 
 const STAGE_FILTER_OPTIONS: { value: DashboardStageFilter; label: string }[] = [
   { value: 'abordagem', label: 'Abordagem' },
@@ -129,24 +137,31 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user, logout } = useAuth()
+  const tabParam = searchParams.get('tab')
   const initialSection: HomeSection =
-    searchParams.get('tab') === 'propostas' ? 'propostas' : 'conversas'
+    tabParam === 'propostas' || tabParam === 'pilotos' ? tabParam : 'conversas'
   const [homeSection, setHomeSection] = useState<HomeSection>(initialSection)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [proposals, setProposals] = useState<ProposalDoc[]>([])
+  const [pilotos, setPilotos] = useState<PilotoDoc[]>([])
   const [loading, setLoading] = useState(true)
   const [proposalsLoading, setProposalsLoading] = useState(false)
+  const [pilotosLoading, setPilotosLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [proposalsError, setProposalsError] = useState<string | null>(null)
+  const [pilotosError, setPilotosError] = useState<string | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todos')
   const [proposalStatusFilter, setProposalStatusFilter] =
     useState<ProposalStatusFilter>('todos')
+  const [pilotoStatusFilter, setPilotoStatusFilter] =
+    useState<ProposalStatusFilter>('todos')
   const [stageFilter, setStageFilter] = useState<StageFilter>('todos')
   const [searchQuery, setSearchQuery] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [proposalPage, setProposalPage] = useState(1)
+  const [pilotoPage, setPilotoPage] = useState(1)
 
   useEffect(() => {
     setCurrentPage(1)
@@ -157,8 +172,12 @@ export default function Dashboard() {
   }, [searchQuery, proposalStatusFilter])
 
   useEffect(() => {
+    setPilotoPage(1)
+  }, [searchQuery, pilotoStatusFilter])
+
+  useEffect(() => {
     const tab = searchParams.get('tab')
-    if (tab === 'propostas' || tab === 'conversas') {
+    if (tab === 'propostas' || tab === 'conversas' || tab === 'pilotos') {
       setHomeSection(tab)
     }
   }, [searchParams])
@@ -167,6 +186,8 @@ export default function Dashboard() {
     setHomeSection(section)
     if (section === 'propostas') {
       setSearchParams({ tab: 'propostas' }, { replace: true })
+    } else if (section === 'pilotos') {
+      setSearchParams({ tab: 'pilotos' }, { replace: true })
     } else {
       setSearchParams({}, { replace: true })
     }
@@ -174,8 +195,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     setProposalPage(1)
+    setPilotoPage(1)
     setSearchQuery('')
     setProposalStatusFilter('todos')
+    setPilotoStatusFilter('todos')
   }, [homeSection])
 
   useEffect(() => {
@@ -220,6 +243,41 @@ export default function Dashboard() {
       .finally(() => {
         if (!cancelled) {
           setProposalsLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [homeSection])
+
+  useEffect(() => {
+    if (homeSection !== 'pilotos') {
+      return
+    }
+
+    let cancelled = false
+    setPilotosLoading(true)
+    setPilotosError(null)
+
+    void listPilotos()
+      .then((items) => {
+        if (cancelled) {
+          return
+        }
+        setPilotos(items)
+      })
+      .catch((error) => {
+        console.error('[Dashboard] listPilotos error:', error)
+        if (!cancelled) {
+          setPilotosError(
+            error instanceof Error ? error.message : 'Erro ao carregar apresentações',
+          )
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPilotosLoading(false)
         }
       })
 
@@ -293,6 +351,34 @@ export default function Dashboard() {
     return filteredProposals.slice(start, start + PROPOSAL_PAGE_SIZE)
   }, [filteredProposals, safeProposalPage])
 
+  const filteredPilotos = useMemo(() => {
+    const byStatus =
+      pilotoStatusFilter === 'todos'
+        ? pilotos
+        : pilotos.filter((piloto) => piloto.status === pilotoStatusFilter)
+
+    if (!searchQuery.trim()) {
+      return byStatus
+    }
+
+    return byStatus.filter((piloto) =>
+      matchesPilotoSearch(
+        piloto.input.leadCompanyName,
+        piloto.input.leadNiche,
+        piloto.input.leadCity,
+        searchQuery,
+      ),
+    )
+  }, [pilotos, searchQuery, pilotoStatusFilter])
+
+  const pilotoTotalPages = Math.max(1, Math.ceil(filteredPilotos.length / PILOTO_PAGE_SIZE))
+  const safePilotoPage = Math.min(pilotoPage, pilotoTotalPages)
+
+  const paginatedPilotos = useMemo(() => {
+    const start = (safePilotoPage - 1) * PILOTO_PAGE_SIZE
+    return filteredPilotos.slice(start, start + PILOTO_PAGE_SIZE)
+  }, [filteredPilotos, safePilotoPage])
+
   useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages)
@@ -304,6 +390,12 @@ export default function Dashboard() {
       setProposalPage(proposalTotalPages)
     }
   }, [proposalPage, proposalTotalPages])
+
+  useEffect(() => {
+    if (pilotoPage > pilotoTotalPages) {
+      setPilotoPage(pilotoTotalPages)
+    }
+  }, [pilotoPage, pilotoTotalPages])
 
   const statusTabs: { value: StatusFilter; label: string }[] = [
     { value: 'todos', label: 'Todas' },
@@ -321,15 +413,24 @@ export default function Dashboard() {
 
   const hasSearch = searchQuery.trim().length > 0
   const isProposals = homeSection === 'propostas'
+  const isPilotos = homeSection === 'pilotos'
   const leadCountDisplay = String(
-    isProposals ? proposals.length : conversations.length,
+    isPilotos ? pilotos.length : isProposals ? proposals.length : conversations.length,
   ).padStart(2, '0')
   const showPagination = filteredConversations.length > PAGE_SIZE
   const showProposalPagination = filteredProposals.length > PROPOSAL_PAGE_SIZE
+  const showPilotoPagination = filteredPilotos.length > PILOTO_PAGE_SIZE
 
   function handleStageFilterChange(value: DashboardStageFilter) {
     setStageFilter((current) => (current === value ? 'todos' : value))
   }
+
+  const sectionTitle = isPilotos ? 'Piloto 45' : isProposals ? 'Propostas' : 'Conversas'
+  const sectionSubtitle = isPilotos
+    ? `${pilotos.length} ${pilotos.length !== 1 ? 'apresentações' : 'apresentação'} no total`
+    : isProposals
+      ? `${proposals.length} proposta${proposals.length !== 1 ? 's' : ''} no total`
+      : `${conversations.length} lead${conversations.length !== 1 ? 's' : ''} no total`
 
   return (
     <div className="min-h-screen bg-background">
@@ -358,6 +459,7 @@ export default function Dashboard() {
             [
               { value: 'conversas' as const, label: 'Conversas' },
               { value: 'propostas' as const, label: 'Propostas' },
+              { value: 'pilotos' as const, label: 'Piloto 45' },
             ] as const
           ).map((section) => (
             <button
@@ -385,16 +487,16 @@ export default function Dashboard() {
           </span>
           <div className="relative z-10">
             <h2 className="text-4xl font-bold uppercase tracking-tighter text-foreground">
-              {isProposals ? 'Propostas' : 'Conversas'}
+              {sectionTitle}
             </h2>
-            <p className="mt-2 text-base normal-case text-muted-foreground">
-              {isProposals
-                ? `${proposals.length} proposta${proposals.length !== 1 ? 's' : ''} no total`
-                : `${conversations.length} lead${conversations.length !== 1 ? 's' : ''} no total`}
-            </p>
+            <p className="mt-2 text-base normal-case text-muted-foreground">{sectionSubtitle}</p>
           </div>
           <div className="relative z-10 flex flex-wrap items-center gap-3">
-            {isProposals ? (
+            {isPilotos ? (
+              <Button size="lg" onClick={() => navigate('/piloto')}>
+                + Nova apresentação
+              </Button>
+            ) : isProposals ? (
               <Button size="lg" onClick={() => navigate('/proposta')}>
                 + Nova proposta
               </Button>
@@ -406,7 +508,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {!isProposals && conversations.length > 0 && (
+        {!isProposals && !isPilotos && conversations.length > 0 && (
           <>
             <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap gap-2">
@@ -497,7 +599,118 @@ export default function Dashboard() {
           </>
         )}
 
-        {isProposals ? (
+        {isPilotos && pilotos.length > 0 && (
+          <>
+            <div className="mt-8 flex flex-wrap gap-2">
+              {proposalStatusTabs.map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  onClick={() => setPilotoStatusFilter(tab.value)}
+                  className={cn(
+                    'min-h-touch border-2 px-4 py-2 text-xs font-bold uppercase tracking-tight transition-colors duration-150',
+                    pilotoStatusFilter === tab.value
+                      ? 'border-accent bg-accent text-accent-foreground'
+                      : 'border-border bg-transparent text-muted-foreground hover:text-accent',
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative mt-5">
+              <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2">
+                <SearchIcon />
+              </span>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Buscar por empresa, nicho ou cidade..."
+                className="min-h-touch w-full border-2 border-border bg-surface-2 py-3 pl-10 pr-4 text-sm normal-case text-foreground transition-colors duration-150 placeholder:text-muted-foreground focus:border-accent focus:outline-none"
+              />
+            </div>
+          </>
+        )}
+
+        {isPilotos ? (
+          pilotosLoading ? (
+            <div className="mt-16 flex justify-center">
+              <Spinner size="lg" />
+            </div>
+          ) : pilotosError ? (
+            <p className="mt-16 border-2 border-status-error px-4 py-3 text-base normal-case text-status-error">
+              Erro ao carregar apresentações: {pilotosError}
+            </p>
+          ) : pilotos.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="relative mt-16"
+            >
+              <Card padding="lg" className="relative z-10 text-center">
+                <h3 className="text-2xl font-bold uppercase tracking-tighter text-foreground">
+                  Nenhuma apresentação ainda
+                </h3>
+                <p className="mx-auto mt-4 max-w-md text-base normal-case leading-relaxed text-muted-foreground">
+                  Monte a apresentação do projeto de 45 dias e apresente na reunião ou envie em
+                  PDF
+                </p>
+                <Button size="lg" className="mt-8" onClick={() => navigate('/piloto')}>
+                  Criar primeira apresentação
+                </Button>
+              </Card>
+            </motion.div>
+          ) : filteredPilotos.length === 0 && hasSearch ? (
+            <p className="mt-16 text-center text-base normal-case text-muted-foreground">
+              Nenhuma apresentação encontrada para &lsquo;{searchQuery.trim()}&rsquo;
+            </p>
+          ) : filteredPilotos.length === 0 ? (
+            <p className="mt-16 text-center text-base normal-case text-muted-foreground">
+              Nenhuma apresentação com este filtro.
+            </p>
+          ) : (
+            <>
+              <motion.ul
+                variants={staggerContainer}
+                initial="hidden"
+                animate="visible"
+                className="mt-8 space-y-4"
+              >
+                {paginatedPilotos.map((piloto) => (
+                  <motion.li key={piloto.id} variants={staggerItem}>
+                    <PilotoCard piloto={piloto} />
+                  </motion.li>
+                ))}
+              </motion.ul>
+
+              {showPilotoPagination && (
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-3 border-2 border-border bg-surface px-4 py-3">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setPilotoPage((page) => Math.max(1, page - 1))}
+                    disabled={safePilotoPage <= 1}
+                  >
+                    Anterior
+                  </Button>
+                  <span className="px-2 text-xs font-bold uppercase tracking-tight text-muted-foreground">
+                    Página {safePilotoPage} de {pilotoTotalPages}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setPilotoPage((page) => Math.min(pilotoTotalPages, page + 1))}
+                    disabled={safePilotoPage >= pilotoTotalPages}
+                  >
+                    Próxima
+                  </Button>
+                </div>
+              )}
+            </>
+          )
+        ) : isProposals ? (
           proposalsLoading ? (
             <div className="mt-16 flex justify-center">
               <Spinner size="lg" />

@@ -21,12 +21,15 @@ interface ProposalStatusSelectorProps {
   proposalId: string
   status: ProposalStatus
   onStatusChange?: (status: ProposalStatus) => void
+  /** Quando informado, substitui updateProposalStatus (ex.: pilotos). */
+  updateStatus?: (id: string, status: ProposalStatus) => Promise<void>
 }
 
 export function ProposalStatusSelector({
   proposalId,
   status,
   onStatusChange,
+  updateStatus,
 }: ProposalStatusSelectorProps) {
   const [updating, setUpdating] = useState(false)
   const alert = useAlert()
@@ -39,7 +42,8 @@ export function ProposalStatusSelector({
     setUpdating(true)
 
     try {
-      await updateProposalStatus(proposalId, next)
+      const persist = updateStatus ?? updateProposalStatus
+      await persist(proposalId, next)
       onStatusChange?.(next)
     } catch {
       await alert({

@@ -7,6 +7,8 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import ConversationView from './pages/ConversationView'
 import NewProposal from './pages/NewProposal'
+import NewPiloto from './pages/NewPiloto'
+import PilotoPresent from './pages/PilotoPresent'
 
 export default function App() {
   return (
@@ -59,6 +61,34 @@ export default function App() {
                   <PageTransition>
                     <NewProposal />
                   </PageTransition>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/piloto"
+              element={
+                <ProtectedRoute>
+                  <PageTransition>
+                    <NewPiloto />
+                  </PageTransition>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/piloto/:id"
+              element={
+                <ProtectedRoute>
+                  <PageTransition>
+                    <NewPiloto />
+                  </PageTransition>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/piloto/:id/apresentar"
+              element={
+                <ProtectedRoute>
+                  <PilotoPresent />
                 </ProtectedRoute>
               }
             />

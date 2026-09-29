@@ -15,9 +15,10 @@ import { ProposalPdfPagedPreview } from '../components/ProposalPdfPagedPreview'
 import { ProposalStatusSelector } from '../components/ProposalStatusSelector'
 import { Button, Card, Input, Switch, Textarea, DownloadIcon, Spinner } from '../components/ui'
 import { formatCurrencyBRL, maskCurrencyBRLInput, parseCurrencyBRL } from '../lib/currencyBRL'
+import { sanitizeFilename } from '../lib/filename'
 import { fileToLogoDataUrl, fileToMarkDataUrl } from '../lib/logoImage'
 import { buildProposalContent } from '../lib/proposalTerms'
-import { ProposalPdfDocument } from '../pdf/ProposalPdfDocument'
+import { ProposalPdfDocument, PDF_LAYOUT_REVISION } from '../pdf/ProposalPdfDocument'
 import {
   DEFAULT_PROPOSAL_DEFAULTS,
   getProposalDefaults,
@@ -73,10 +74,6 @@ function extractAiContent(content: ProposalContentDoc): ProposalAiContent {
     projectSteps: content.projectSteps,
     closingParagraph: content.closingParagraph,
   }
-}
-
-function sanitizeFilename(value: string): string {
-  return value.replace(/[/\\:*?"<>|]/g, '-').trim() || 'Proposta'
 }
 
 function normalizeRecurrenceFromDoc(raw: ProposalRecurrence & { firstPaymentDate?: string | null }): ProposalRecurrence {
@@ -1233,7 +1230,14 @@ export default function NewProposal() {
                     }
                   />
                 ) : previewContent ? (
-                  <ProposalPdfPagedPreview input={formInput} content={previewContent} />
+                  <ProposalPdfPagedPreview
+                    document={
+                      <ProposalPdfDocument input={formInput} content={previewContent} />
+                    }
+                    pageAspect="810 / 1440"
+                    revision={PDF_LAYOUT_REVISION}
+                    sourceKey={JSON.stringify({ formInput, previewContent })}
+                  />
                 ) : null}
 
                 {!editMode ? (

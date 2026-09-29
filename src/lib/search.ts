@@ -29,3 +29,21 @@ export function matchesProposalSearch(
 ): boolean {
   return matchesConversationSearch(companyName, projectTitle, query)
 }
+
+export function matchesPilotoSearch(
+  leadCompanyName: string,
+  leadNiche: string,
+  leadCity: string,
+  query: string,
+): boolean {
+  const normalizedQuery = normalizeSearchText(query)
+  if (!normalizedQuery) {
+    return true
+  }
+
+  return (
+    normalizeSearchText(leadCompanyName).includes(normalizedQuery) ||
+    normalizeSearchText(leadNiche).includes(normalizedQuery) ||
+    normalizeSearchText(leadCity).includes(normalizedQuery)
+  )
+}

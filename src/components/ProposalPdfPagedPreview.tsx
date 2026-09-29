@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactElement } from 'react'
 import { pdf } from '@react-pdf/renderer'
+import type { DocumentProps } from '@react-pdf/renderer'
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
-import { ProposalPdfDocument, PDF_LAYOUT_REVISION } from '../pdf/ProposalPdfDocument'
-import type { ProposalContentDoc, ProposalFormInput } from '../types/proposalDoc'
 import { cn } from '../lib/cn'
 import { Spinner } from './ui'
 
@@ -29,12 +29,13 @@ if (typeof mapProto.getOrInsertComputed !== 'function') {
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
-/** Proporção do template da proposta (retrato 810×1440). */
-const PAGE_ASPECT = '810 / 1440'
-
 interface ProposalPdfPagedPreviewProps {
-  input: ProposalFormInput
-  content: ProposalContentDoc
+  document: ReactElement<DocumentProps>
+  pageAspect: string
+  revision: number
+  className?: string
+  /** Muda quando input/content mudam — evita reler o PDF a cada render do ReactElement. */
+  sourceKey?: string
 }
 
 function ChevronUpIcon() {
@@ -70,12 +71,20 @@ async function cancelRenderTask(task: RenderTask | null) {
   }
 }
 
-export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPreviewProps) {
+export function ProposalPdfPagedPreview({
+  document: pdfDocument,
+  pageAspect,
+  revision,
+  className,
+  sourceKey = '',
+}: ProposalPdfPagedPreviewProps) {
   const pageBoxRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pdfDocRef = useRef<PDFDocumentProxy | null>(null)
   const renderTaskRef = useRef<RenderTask | null>(null)
   const loadIdRef = useRef(0)
+  const documentRef = useRef(pdfDocument)
+  documentRef.current = pdfDocument
 
   const [pageNumber, setPageNumber] = useState(1)
   const [numPages, setNumPages] = useState(0)
@@ -83,7 +92,6 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
   const [rendering, setRendering] = useState(false)
   const [error, setError] = useState('')
   const [boxWidth, setBoxWidth] = useState(0)
-  /** Depois da 1ª página desenhada, atualizações não escondem mais o canvas. */
   const [hasRendered, setHasRendered] = useState(false)
 
   useEffect(() => {
@@ -118,9 +126,7 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
             pdfDocRef.current = null
           }
 
-          const blob = await pdf(
-            <ProposalPdfDocument input={input} content={content} />,
-          ).toBlob()
+          const blob = await pdf(documentRef.current).toBlob()
           const buffer = await blob.arrayBuffer()
           const data = new Uint8Array(buffer.slice(0))
           const doc = await getDocument({ data }).promise
@@ -132,8 +138,6 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
 
           pdfDocRef.current = doc
           setNumPages(doc.numPages)
-          // Mantém a página que estava aberta ao regerar o PDF (ajuste de posição,
-          // tamanho, texto...). Só recua se o documento novo tiver menos páginas.
           setPageNumber((current) => Math.min(Math.max(1, current), doc.numPages))
           setLoadingDoc(false)
         } catch (err) {
@@ -152,7 +156,7 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [input, content, PDF_LAYOUT_REVISION])
+  }, [revision, sourceKey])
 
   useEffect(() => {
     return () => {
@@ -258,8 +262,8 @@ export function ProposalPdfPagedPreview({ input, content }: ProposalPdfPagedPrev
   return (
     <div
       ref={pageBoxRef}
-      className="relative w-full overflow-hidden border-2 border-border bg-white"
-      style={{ aspectRatio: PAGE_ASPECT }}
+      className={cn('relative w-full overflow-hidden border-2 border-border bg-white', className)}
+      style={{ aspectRatio: pageAspect }}
     >
       {(loadingDoc || rendering) && (
         <div

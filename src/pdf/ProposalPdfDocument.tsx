@@ -1168,7 +1168,7 @@ function ContentPage({
           section.id === 'prerequisite'
             ? [
                 styles.prerequisiteBlock,
-                isFirstOnPage ? { marginTop: 0 } : null,
+                ...(isFirstOnPage ? [{ marginTop: 0 }] : []),
               ]
             : isFirstOnPage
               ? undefined
