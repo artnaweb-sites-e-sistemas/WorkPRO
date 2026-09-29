@@ -16,6 +16,7 @@ export interface PilotoPlan {
   pitch: string
 }
 
+/** Ordem de exibição: o recomendado fica no centro. */
 export const PILOTO_PLANS: PilotoPlan[] = [
   {
     id: 'meta',
@@ -24,16 +25,7 @@ export const PILOTO_PLANS: PilotoPlan[] = [
     adBudgetCents: 100000,
     totalCents: 400000,
     highlighted: false,
-    pitch: 'Testa um canal e valida o criativo em vídeo.',
-  },
-  {
-    id: 'google',
-    name: 'Piloto Google',
-    channels: ['Google Ads'],
-    adBudgetCents: 100000,
-    totalCents: 400000,
-    highlighted: false,
-    pitch: 'Testa um canal e captura quem já está procurando.',
+    pitch: 'Para testar vídeo e alcance no Instagram e no Facebook.',
   },
   {
     id: 'completo',
@@ -42,7 +34,16 @@ export const PILOTO_PLANS: PilotoPlan[] = [
     adBudgetCents: 200000,
     totalCents: 500000,
     highlighted: true,
-    pitch: 'O único que responde qual canal traz cliente mais barato.',
+    pitch: 'Os dois canais lado a lado. O único que mostra onde vale investir.',
+  },
+  {
+    id: 'google',
+    name: 'Piloto Google',
+    channels: ['Google Ads'],
+    adBudgetCents: 100000,
+    totalCents: 400000,
+    highlighted: false,
+    pitch: 'Para capturar quem já está procurando o que você vende.',
   },
 ]
 

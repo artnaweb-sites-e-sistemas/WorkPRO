@@ -1,29 +1,45 @@
-import { FOUNDATION_ITEMS } from '../../lib/pilotoContent'
+import { FOUNDATION_GROUPS } from '../../lib/pilotoContent'
+import { BODY, INK, LightSlide, MUTED } from './deck'
 import type { SlideProps } from './slideTypes'
 
-export function SlideFundacao(_props: SlideProps) {
-  const left = FOUNDATION_ITEMS.slice(0, 4)
-  const right = FOUNDATION_ITEMS.slice(4)
+export function SlideFundacao({ input, content, accent, index, total }: SlideProps) {
+  void content
 
   return (
-    <div className="flex h-full w-full flex-col px-[80px] py-[56px] text-white">
-      <h2 className="text-[40px] font-bold tracking-tight">Fundação · dias 1 a 15</h2>
-
-      <div className="mt-10 grid flex-1 grid-cols-2 gap-x-16">
-        {[left, right].map((column, columnIndex) => (
-          <div key={columnIndex}>
-            {column.map((item, index) => (
-              <div key={item.title}>
-                {index > 0 ? <div className="h-px bg-white/10" /> : null}
-                <div className="py-4">
-                  <p className="text-[22px] font-semibold">{item.title}</p>
-                  <p className="mt-1 text-[16px] font-medium text-[#A1A1AA]">{item.description}</p>
+    <LightSlide
+      input={input}
+      accent={accent}
+      index={index}
+      total={total}
+      kicker="Fundação · dias 1 a 15"
+      title="Tudo pronto antes do primeiro anúncio"
+    >
+      <div className="grid h-full grid-cols-3 gap-10">
+        {FOUNDATION_GROUPS.map((group) => (
+          <div key={group.name}>
+            <div className="flex items-baseline justify-between border-b-2 pb-3" style={{ borderColor: INK }}>
+              <p className="text-[20px] font-bold tracking-[-0.01em]">{group.name}</p>
+              <span className="text-[14px] font-semibold tabular-nums" style={{ color: MUTED }}>
+                {group.items.length} entregas
+              </span>
+            </div>
+            <div>
+              {group.items.map((item) => (
+                <div
+                  key={item.title}
+                  className="border-t py-5 first:border-t-0"
+                  style={{ borderColor: '#EDEDEF' }}
+                >
+                  <p className="text-[19px] font-semibold tracking-[-0.01em]">{item.title}</p>
+                  <p className="mt-1 text-[15.5px] font-medium leading-[1.45]" style={{ color: BODY }}>
+                    {item.description}
+                  </p>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         ))}
       </div>
-    </div>
+    </LightSlide>
   )
 }

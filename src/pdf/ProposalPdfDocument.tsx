@@ -46,10 +46,10 @@ Font.register({
 
 Font.registerHyphenationCallback((word) => [word])
 
-const PAGE_W = 810
-const PAGE_H = 1440
-const MARGIN_X = 81
-const CONTENT_W = 648
+export const PAGE_W = 810
+export const PAGE_H = 1440
+export const MARGIN_X = 81
+export const CONTENT_W = 648
 /** Sobe quando o layout do PDF muda sem alterar input/content, para o preview regenerar. */
 export const PDF_LAYOUT_REVISION = 2
 const YELLOW = DEFAULT_ACCENT_COLOR
@@ -535,7 +535,10 @@ const styles = StyleSheet.create({
   },
 })
 
-function DarkBackground() {
+/** Estilos compartilhados com o PDF do Piloto 45 (mesma capa, rodapé e blocos). */
+export const proposalPdfStyles = styles
+
+export function DarkBackground() {
   return (
     <Svg style={{ position: 'absolute', top: 0, left: 0, width: PAGE_W, height: PAGE_H }}>
       <Defs>
@@ -549,7 +552,7 @@ function DarkBackground() {
   )
 }
 
-function CheckIcon() {
+export function CheckIcon() {
   return (
     <Svg width={17} height={17} viewBox="0 0 24 24" style={{ marginTop: 3 }}>
       <Path
@@ -564,7 +567,7 @@ function CheckIcon() {
   )
 }
 
-function SectionHeading({ title, accent }: { title: string; accent: string }) {
+export function SectionHeading({ title, accent }: { title: string; accent: string }) {
   return (
     <View style={styles.sectionHeading}>
       <View style={[styles.sectionBar, { backgroundColor: accent }]} />
@@ -573,7 +576,7 @@ function SectionHeading({ title, accent }: { title: string; accent: string }) {
   )
 }
 
-function CoverLogo({
+export function CoverLogo({
   logoDataUrl,
   companyName,
 }: {
@@ -649,7 +652,7 @@ function FooterWebsiteLink({
   )
 }
 
-function PageFooter({
+export function PageFooter({
   companyName,
   websiteUrl,
   validityDays,
@@ -916,7 +919,7 @@ function CoverPage({
 /** Quanto o símbolo sangra para fora da página quando ancorado numa borda. */
 const WATERMARK_BLEED = 60
 
-function Watermark({
+export function Watermark({
   src,
   anchor,
   scale,

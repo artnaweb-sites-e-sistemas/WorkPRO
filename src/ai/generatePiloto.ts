@@ -117,18 +117,42 @@ function enforceLimits(content: PilotoAiContent): PilotoAiContent {
 }
 
 function parseAndNormalize(raw: string): PilotoAiContent {
+  let parsed: unknown
   try {
-    const parsed = JSON.parse(raw) as unknown
-    return enforceLimits(normalizePilotoAiContent(parsed))
+    parsed = JSON.parse(raw) as unknown
   } catch {
-    return enforceLimits(normalizePilotoAiContent(null))
+    throw new Error('A IA devolveu uma resposta inválida. Tente gerar novamente.')
+  }
+
+  const normalized = enforceLimits(normalizePilotoAiContent(parsed))
+
+  if (!normalized.diagnosisHeadline.trim() && !normalized.closingParagraph.trim()) {
+    throw new Error('A IA devolveu uma resposta vazia. Tente gerar novamente.')
+  }
+
+  return normalized
+}
+
+async function callPilotoModel(userContent: string): Promise<PilotoAiContent> {
+  const model = getGeminiModel(SYSTEM_INSTRUCTION, PILOTO_SCHEMA)
+  try {
+    const result = await model.generateContent(userContent)
+    return parseAndNormalize(result.response.text())
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.startsWith('A IA devolveu') ||
+        error.message.startsWith('Falha ao chamar a IA:'))
+    ) {
+      throw error
+    }
+    const message = error instanceof Error ? error.message : 'Erro desconhecido'
+    throw new Error(`Falha ao chamar a IA: ${message}`)
   }
 }
 
 export async function generatePilotoContent(input: PilotoInput): Promise<PilotoAiContent> {
-  const model = getGeminiModel(SYSTEM_INSTRUCTION, PILOTO_SCHEMA)
-  const result = await model.generateContent(buildUserContent(input))
-  return parseAndNormalize(result.response.text())
+  return callPilotoModel(buildUserContent(input))
 }
 
 export async function regeneratePilotoContent(
@@ -148,7 +172,5 @@ export async function regeneratePilotoContent(
     'Regenere o JSON COMPLETO já com o ajuste aplicado. Campos não afetados devem sair praticamente idênticos. Os limites de caracteres continuam valendo.',
   ].join('\n')
 
-  const model = getGeminiModel(SYSTEM_INSTRUCTION, PILOTO_SCHEMA)
-  const result = await model.generateContent(userContent)
-  return parseAndNormalize(result.response.text())
+  return callPilotoModel(userContent)
 }

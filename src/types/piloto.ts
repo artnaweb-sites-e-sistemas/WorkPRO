@@ -1,6 +1,11 @@
 import type { Timestamp } from 'firebase/firestore'
-import type { ProposalStatus } from './proposalDoc'
-import { DEFAULT_ACCENT_COLOR, normalizeAccentColor } from './proposalDoc'
+import type { MarkAnchor, ProposalDefaults, ProposalStatus } from './proposalDoc'
+import {
+  DEFAULT_ACCENT_COLOR,
+  normalizeAccentColor,
+  normalizeMarkAnchor,
+  normalizeMarkScale,
+} from './proposalDoc'
 
 const DEFAULT_INSTALLMENT_FEE_RATE = 0.1506
 
@@ -9,7 +14,12 @@ export type SituationAnswer = 'sim' | 'nao' | 'nao_sei'
 export interface PilotoInput {
   companyName: string
   professionalName: string
+  /** logo clara, para fundo escuro (capa e fechamento) */
   logoDataUrl: string
+  /** símbolo da marca: marca d'água e assinatura das páginas claras */
+  markDataUrl: string
+  markAnchor: MarkAnchor
+  markScale: number
   websiteUrl: string
   accentColor: string
 
@@ -24,8 +34,6 @@ export interface PilotoInput {
   whatsappOrganized: SituationAnswer
 
   contextNotes: string
-
-  toolScreenshots: string[]
 
   installmentFeeRate: number
   validityDays: number
@@ -69,6 +77,11 @@ const SITUATION_ANSWERS: SituationAnswer[] = ['sim', 'nao', 'nao_sei']
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+/** Texto digitado pelo usuário: sem trim, senão o espaço some enquanto ele digita. */
+function asText(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }
 
 function asFiniteNumber(value: unknown): number {
@@ -132,29 +145,47 @@ export function normalizePilotoInput(raw: unknown): PilotoInput {
     validityDays = 15
   }
 
-  const screenshotsRaw = Array.isArray(record.toolScreenshots) ? record.toolScreenshots : []
-  const toolScreenshots = screenshotsRaw
-    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    .map((item) => item.trim())
-    .slice(0, 3)
-
   return {
-    companyName: asString(record.companyName),
-    professionalName: asString(record.professionalName),
+    companyName: asText(record.companyName),
+    professionalName: asText(record.professionalName),
     logoDataUrl: typeof record.logoDataUrl === 'string' ? record.logoDataUrl : '',
-    websiteUrl: asString(record.websiteUrl),
+    markDataUrl: typeof record.markDataUrl === 'string' ? record.markDataUrl : '',
+    markAnchor: normalizeMarkAnchor(record.markAnchor),
+    markScale: normalizeMarkScale(record.markScale),
+    websiteUrl: asText(record.websiteUrl),
     accentColor: normalizeAccentColor(record.accentColor ?? DEFAULT_ACCENT_COLOR),
-    leadCompanyName: asString(record.leadCompanyName),
-    leadNiche: asString(record.leadNiche),
-    leadCity: asString(record.leadCity),
-    leadOffer: asString(record.leadOffer),
+    leadCompanyName: asText(record.leadCompanyName),
+    leadNiche: asText(record.leadNiche),
+    leadCity: asText(record.leadCity),
+    leadOffer: asText(record.leadOffer),
     ticketCents: ticketCents > 0 ? Math.round(ticketCents) : 0,
     hasWebsite: normalizeSituationAnswer(record.hasWebsite),
     runsAds: normalizeSituationAnswer(record.runsAds),
     whatsappOrganized: normalizeSituationAnswer(record.whatsappOrganized),
-    contextNotes: asString(record.contextNotes),
-    toolScreenshots,
+    contextNotes: asText(record.contextNotes),
     installmentFeeRate,
     validityDays,
+  }
+}
+
+/**
+ * Marca do usuário vem dos defaults da proposta. Campo vazio no piloto é preenchido
+ * com o default (piloto antigo, sem símbolo, passa a ter). O símbolo leva junto
+ * posição e tamanho, porque os três só fazem sentido juntos.
+ */
+export function applyBrandDefaults(input: PilotoInput, defaults: ProposalDefaults): PilotoInput {
+  const takeMark = !input.markDataUrl && Boolean(defaults.markDataUrl)
+
+  return {
+    ...input,
+    companyName: input.companyName.trim() ? input.companyName : defaults.companyName,
+    professionalName: input.professionalName.trim()
+      ? input.professionalName
+      : defaults.professionalName,
+    logoDataUrl: input.logoDataUrl || defaults.logoDataUrl,
+    websiteUrl: input.websiteUrl.trim() ? input.websiteUrl : defaults.websiteUrl,
+    markDataUrl: takeMark ? defaults.markDataUrl : input.markDataUrl,
+    markAnchor: takeMark ? normalizeMarkAnchor(defaults.markAnchor) : input.markAnchor,
+    markScale: takeMark ? normalizeMarkScale(defaults.markScale) : input.markScale,
   }
 }

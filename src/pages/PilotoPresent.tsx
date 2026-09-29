@@ -114,7 +114,11 @@ export default function PilotoPresent() {
         event.preventDefault()
         goTo(SLIDES.length - 1)
       }
-      if (event.key === 'Escape' && id) {
+      if (event.key === 'f' || event.key === 'F') {
+        event.preventDefault()
+        void handleFullscreen()
+      }
+      if (event.key === 'Escape' && id && !document.fullscreenElement) {
         event.preventDefault()
         navigate(`/piloto/${id}`)
       }
@@ -186,7 +190,13 @@ export default function PilotoPresent() {
           className="h-full w-full animate-[pilotoFade_150ms_ease-out]"
           style={{ animation: 'pilotoFade 150ms ease-out' }}
         >
-          <Slide input={input} content={content} accent={accent} />
+          <Slide
+            input={input}
+            content={content}
+            accent={accent}
+            index={slideIndex}
+            total={SLIDES.length}
+          />
         </div>
 
         <button
@@ -203,19 +213,15 @@ export default function PilotoPresent() {
         />
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-6 z-30 flex items-center justify-between px-8">
-        <button
-          type="button"
-          aria-label="Tela cheia"
-          onClick={() => void handleFullscreen()}
-          className="pointer-events-auto flex h-11 w-11 items-center justify-center text-[#A1A1AA] transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-        >
-          <FullscreenIcon />
-        </button>
-        <span className="tabular-nums text-sm font-medium text-[#71717A]">
-          {slideIndex + 1} / {SLIDES.length}
-        </span>
-      </div>
+      <button
+        type="button"
+        aria-label="Tela cheia"
+        title="Tela cheia (F)"
+        onClick={() => void handleFullscreen()}
+        className="absolute right-4 top-4 z-30 flex h-10 w-10 items-center justify-center bg-black/40 text-white/60 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      >
+        <FullscreenIcon />
+      </button>
 
       <style>{`
         @keyframes pilotoFade {

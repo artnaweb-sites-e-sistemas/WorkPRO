@@ -1,24 +1,114 @@
-import { AD_BUDGET_NOTE, TRAFFIC_ITEMS } from '../../lib/pilotoContent'
+import { TRAFFIC_ITEMS, TRAFFIC_LOOP } from '../../lib/pilotoContent'
+import { BODY, INK, LightSlide, MUTED, RULE } from './deck'
 import type { SlideProps } from './slideTypes'
 
-export function SlideTrafego(_props: SlideProps) {
-  return (
-    <div className="flex h-full w-full flex-col px-[80px] py-[56px] text-white">
-      <h2 className="text-[40px] font-bold tracking-tight">Tráfego · dias 16 a 45</h2>
+const SIZE = 340
+const C = SIZE / 2
+const R = 118
+/** Topo, direita-baixo, esquerda-baixo (graus, sentido horário a partir das 3h). */
+const ANGLES = [-90, 30, 150]
+const ARC_GAP = 22
 
-      <div className="mt-10 flex-1">
-        {TRAFFIC_ITEMS.map((item, index) => (
-          <div key={item.title}>
-            {index > 0 ? <div className="h-px bg-white/10" /> : null}
-            <div className="py-5">
-              <p className="text-[22px] font-semibold">{item.title}</p>
-              <p className="mt-1 text-[16px] font-medium text-[#A1A1AA]">{item.description}</p>
-            </div>
-          </div>
-        ))}
+function point(angle: number, radius = R) {
+  const rad = (angle * Math.PI) / 180
+  return { x: C + radius * Math.cos(rad), y: C + radius * Math.sin(rad) }
+}
+
+function arcPath(from: number, to: number): string {
+  const start = point(from + ARC_GAP)
+  const end = point(to - ARC_GAP)
+  return `M${start.x},${start.y} A${R},${R} 0 0 1 ${end.x},${end.y}`
+}
+
+/** Posição do rótulo de cada etapa, por fora do círculo. */
+const LABEL_POSITION = [
+  { left: C, top: C - R - 46, transform: 'translateX(-50%)' },
+  { left: C + R * 0.87 + 18, top: C + R * 0.5 + 8, transform: 'none' },
+  { left: C - R * 0.87 - 18, top: C + R * 0.5 + 8, transform: 'translateX(-100%)' },
+]
+
+function OptimizationLoop({ accent }: { accent: string }) {
+  return (
+    <div className="relative shrink-0" style={{ width: SIZE, height: SIZE }}>
+      <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden>
+        <defs>
+          <marker id="loop-arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 Z" fill={INK} />
+          </marker>
+        </defs>
+        <circle cx={C} cy={C} r={R} fill="none" stroke={RULE} strokeWidth={1} />
+        {ANGLES.map((angle, angleIndex) => {
+          const next = ANGLES[(angleIndex + 1) % ANGLES.length]
+          const to = next <= angle ? next + 360 : next
+          return (
+            <path
+              key={angle}
+              d={arcPath(angle, to)}
+              fill="none"
+              stroke={INK}
+              strokeWidth={2}
+              markerEnd="url(#loop-arrow)"
+            />
+          )
+        })}
+        {ANGLES.map((angle) => {
+          const node = point(angle)
+          return (
+            <g key={`node-${angle}`}>
+              <circle cx={node.x} cy={node.y} r={13} fill="#FFFFFF" />
+              <circle cx={node.x} cy={node.y} r={9} fill={accent} stroke={INK} strokeWidth={2} />
+            </g>
+          )
+        })}
+      </svg>
+
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <p className="text-[40px] font-bold leading-none tracking-[-0.03em] tabular-nums">30</p>
+        <p className="mt-1 text-[14px] font-semibold" style={{ color: MUTED }}>
+          dias em ciclo
+        </p>
       </div>
 
-      <p className="text-[16px] font-medium text-[#71717A]">{AD_BUDGET_NOTE}</p>
+      {TRAFFIC_LOOP.map((label, labelIndex) => (
+        <span
+          key={label}
+          className="absolute whitespace-nowrap text-[18px] font-bold"
+          style={LABEL_POSITION[labelIndex]}
+        >
+          {label}
+        </span>
+      ))}
     </div>
+  )
+}
+
+export function SlideTrafego({ input, content, accent, index, total }: SlideProps) {
+  void content
+
+  return (
+    <LightSlide
+      input={input}
+      accent={accent}
+      index={index}
+      total={total}
+      kicker="Tráfego · dias 16 a 45"
+      title="Verba real, dado real, ajuste constante"
+    >
+      <div className="flex h-full items-center gap-20">
+        <div className="pl-16">
+          <OptimizationLoop accent={accent} />
+        </div>
+        <div className="min-w-0 flex-1">
+          {TRAFFIC_ITEMS.map((item) => (
+            <div key={item.title} className="border-t py-[13px] first:border-t-0" style={{ borderColor: '#EDEDEF' }}>
+              <p className="text-[18px] font-semibold">{item.title}</p>
+              <p className="mt-0.5 text-[15px] font-medium leading-[1.45]" style={{ color: BODY }}>
+                {item.description}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </LightSlide>
   )
 }

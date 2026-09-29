@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { pdf } from '@react-pdf/renderer'
 import { generatePilotoContent, regeneratePilotoContent } from '../ai/generatePiloto'
+import { PilotoContentEditor } from '../components/PilotoContentEditor'
 import { ProposalPdfPagedPreview } from '../components/ProposalPdfPagedPreview'
 import { ProposalStatusSelector } from '../components/ProposalStatusSelector'
 import {
@@ -18,14 +18,17 @@ import {
 } from '../components/ui'
 import { formatCurrencyBRL, maskCurrencyBRLInput, parseCurrencyBRL } from '../lib/currencyBRL'
 import { sanitizeFilename } from '../lib/filename'
-import { fileToScreenshotDataUrl } from '../lib/pilotoScreenshot'
 import {
   AGENCY_DEAL_CENTS,
   DEFAULT_INSTALLMENT_FEE_RATE,
   calcInstallments,
 } from '../lib/pilotoPricing'
 import { cn } from '../lib/cn'
-import { PilotoPdfDocument, PILOTO_PDF_LAYOUT_REVISION } from '../pdf/PilotoPdfDocument'
+import {
+  PilotoPdfDocument,
+  PILOTO_PDF_LAYOUT_REVISION,
+  PILOTO_PDF_PAGE_COUNT,
+} from '../pdf/PilotoPdfDocument'
 import { getProposalDefaults } from '../services/proposalDefaults'
 import {
   createPiloto,
@@ -36,6 +39,7 @@ import {
 import type { PilotoAiContent, PilotoInput, SituationAnswer } from '../types/piloto'
 import {
   EMPTY_PILOTO_AI_CONTENT,
+  applyBrandDefaults,
   normalizePilotoAiContent,
   normalizePilotoInput,
 } from '../types/piloto'
@@ -53,6 +57,7 @@ function emptyInput(): PilotoInput {
     companyName: '',
     professionalName: '',
     logoDataUrl: '',
+    markDataUrl: '',
     websiteUrl: '',
     accentColor: DEFAULT_ACCENT_COLOR,
     leadCompanyName: '',
@@ -64,7 +69,6 @@ function emptyInput(): PilotoInput {
     runsAds: 'nao_sei',
     whatsappOrganized: 'nao_sei',
     contextNotes: '',
-    toolScreenshots: [],
     installmentFeeRate: DEFAULT_INSTALLMENT_FEE_RATE,
     validityDays: 15,
   })
@@ -87,6 +91,19 @@ function parsePercentToRate(value: string): number {
   return parsed / 100
 }
 
+function isContentEmpty(content: PilotoAiContent): boolean {
+  if (content.diagnosisHeadline.trim()) return false
+  if (content.funnelTopLabel.trim()) return false
+  if (content.funnelMiddleLabel.trim()) return false
+  if (content.funnelBottomLabel.trim()) return false
+  if (content.closingParagraph.trim()) return false
+  if (content.diagnosisLines.some((line) => line.trim())) return false
+  if (content.adAngles.some((angle) => angle.title.trim() || angle.description.trim())) {
+    return false
+  }
+  return true
+}
+
 export default function NewPiloto() {
   const { id: routeId } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -107,7 +124,8 @@ export default function NewPiloto() {
   const [saving, setSaving] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [actionError, setActionError] = useState('')
-  const [screenshotError, setScreenshotError] = useState('')
+  const [actionNotice, setActionNotice] = useState('')
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [adjustOpen, setAdjustOpen] = useState(false)
   const [adjustment, setAdjustment] = useState('')
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -119,6 +137,26 @@ export default function NewPiloto() {
 
   const canGenerate = Boolean(input.leadCompanyName.trim() && input.leadNiche.trim())
   const generateHint = !canGenerate ? 'Preencha empresa e nicho para gerar' : null
+  const contentEmpty = isContentEmpty(content)
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) {
+        window.clearTimeout(noticeTimerRef.current)
+      }
+    }
+  }, [])
+
+  function showActionNotice(message: string) {
+    setActionNotice(message)
+    if (noticeTimerRef.current) {
+      window.clearTimeout(noticeTimerRef.current)
+    }
+    noticeTimerRef.current = window.setTimeout(() => {
+      setActionNotice('')
+      noticeTimerRef.current = null
+    }, 4000)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -127,7 +165,7 @@ export default function NewPiloto() {
       try {
         if (routeId) {
           setLoadingDoc(true)
-          const doc = await getPiloto(routeId)
+          const [doc, brand] = await Promise.all([getPiloto(routeId), getProposalDefaults()])
           if (cancelled) {
             return
           }
@@ -137,7 +175,7 @@ export default function NewPiloto() {
           }
           setPilotoId(doc.id)
           setStatus(doc.status)
-          setInput(doc.input)
+          setInput(applyBrandDefaults(doc.input, brand))
           setContent(doc.content)
           setTicketDisplay(
             doc.input.ticketCents > 0 ? formatCurrencyBRL(doc.input.ticketCents) : '',
@@ -151,14 +189,10 @@ export default function NewPiloto() {
           return
         }
         setInput((current) =>
-          normalizePilotoInput({
-            ...current,
-            companyName: defaults.companyName,
-            professionalName: defaults.professionalName,
-            logoDataUrl: defaults.logoDataUrl,
-            websiteUrl: defaults.websiteUrl,
-            accentColor: normalizeAccentColor(defaults.accentColor),
-          }),
+          applyBrandDefaults(
+            { ...current, accentColor: normalizeAccentColor(defaults.accentColor) },
+            defaults,
+          ),
         )
       } catch (error) {
         console.error('[NewPiloto] load', error)
@@ -182,41 +216,17 @@ export default function NewPiloto() {
     setInput((current) => normalizePilotoInput({ ...current, ...partial }))
   }
 
-  async function handleScreenshotChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) {
-      return
-    }
-
-    setScreenshotError('')
-    try {
-      if (input.toolScreenshots.length >= 3) {
-        setScreenshotError('Máximo de 3 prints.')
-        return
-      }
-      const dataUrl = await fileToScreenshotDataUrl(file)
-      patchInput({ toolScreenshots: [...input.toolScreenshots, dataUrl].slice(0, 3) })
-    } catch (error) {
-      setScreenshotError(error instanceof Error ? error.message : 'Erro ao processar imagem')
-    }
-  }
-
-  function removeScreenshot(index: number) {
-    patchInput({
-      toolScreenshots: input.toolScreenshots.filter((_, itemIndex) => itemIndex !== index),
-    })
-  }
-
   async function handleGenerate() {
     if (!canGenerate || generating) {
       return
     }
     setGenerating(true)
     setActionError('')
+    setActionNotice('')
     try {
       const next = await generatePilotoContent(input)
       setContent(next)
+      showActionNotice('Textos gerados.')
     } catch (error) {
       console.error('[NewPiloto] generate', error)
       setActionError(error instanceof Error ? error.message : 'Erro ao gerar textos')
@@ -231,11 +241,13 @@ export default function NewPiloto() {
     }
     setRegenerating(true)
     setActionError('')
+    setActionNotice('')
     try {
       const next = await regeneratePilotoContent(input, content, adjustment.trim())
       setContent(next)
       setAdjustOpen(false)
       setAdjustment('')
+      showActionNotice('Textos gerados.')
     } catch (error) {
       console.error('[NewPiloto] regenerate', error)
       setActionError(error instanceof Error ? error.message : 'Erro ao ajustar textos')
@@ -434,40 +446,6 @@ export default function NewPiloto() {
           </div>
         </Card>
 
-        <Card>
-          <CardTitle>Prints da ferramenta</CardTitle>
-          <div className="mt-4 space-y-4">
-            <div className="flex flex-wrap gap-3">
-              {input.toolScreenshots.map((src, index) => (
-                <div key={index} className="relative h-28 w-28 border-2 border-border bg-surface-2">
-                  <img src={src} alt="" className="h-full w-full object-cover" />
-                  <button
-                    type="button"
-                    aria-label={`Remover print ${index + 1}`}
-                    onClick={() => removeScreenshot(index)}
-                    className="absolute right-1 top-1 border-2 border-border bg-surface px-1.5 py-0.5 text-[10px] font-bold uppercase"
-                  >
-                    Remover
-                  </button>
-                </div>
-              ))}
-              {input.toolScreenshots.length < 3 ? (
-                <label className="flex h-28 w-28 cursor-pointer items-center justify-center border-2 border-dashed border-border text-center text-xs font-bold uppercase tracking-tight text-muted-foreground hover:border-accent hover:text-accent">
-                  + Print
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg"
-                    className="sr-only"
-                    onChange={(event) => void handleScreenshotChange(event)}
-                  />
-                </label>
-              ) : null}
-            </div>
-            {screenshotError ? (
-              <p className="text-xs normal-case text-status-error">{screenshotError}</p>
-            ) : null}
-          </div>
-        </Card>
 
         <Card>
           <CardTitle>Comercial</CardTitle>
@@ -499,6 +477,21 @@ export default function NewPiloto() {
             de {formatCurrencyBRL(installments.installmentCents)} (total{' '}
             {formatCurrencyBRL(installments.totalCents)}).
           </p>
+        </Card>
+
+        <Card>
+          <CardTitle>Textos gerados</CardTitle>
+          {contentEmpty ? (
+            <p className="mt-4 text-sm normal-case text-muted-foreground">
+              Nenhum texto ainda. Preencha o lead e clique em Gerar textos.
+            </p>
+          ) : (
+            <PilotoContentEditor
+              content={content}
+              onChange={setContent}
+              disabled={generating || regenerating}
+            />
+          )}
         </Card>
 
         <div className="sticky bottom-0 z-20 -mx-6 border-t-2 border-border bg-surface px-6 py-4">
@@ -547,6 +540,8 @@ export default function NewPiloto() {
           </div>
           {actionError ? (
             <p className="mt-3 text-sm normal-case text-status-error">{actionError}</p>
+          ) : actionNotice ? (
+            <p className="mt-3 text-sm normal-case text-status-success">{actionNotice}</p>
           ) : null}
         </div>
 
@@ -560,7 +555,7 @@ export default function NewPiloto() {
               Prévia do PDF
             </span>
             <span className="text-xs font-bold uppercase tracking-tight text-muted-foreground">
-              {previewOpen ? 'Fechar' : 'Abrir'} · 5 páginas
+              {previewOpen ? 'Fechar' : 'Abrir'} · {PILOTO_PDF_PAGE_COUNT} páginas
             </span>
           </button>
           {previewOpen ? (
