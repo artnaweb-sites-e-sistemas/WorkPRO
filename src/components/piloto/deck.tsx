@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { accentForegroundColor } from '../../types/proposalDoc'
 import type { PilotoInput } from '../../types/piloto'
+import { PILOTO_ICONS } from '../../lib/pilotoIcons'
+import type { PilotoIconName } from '../../lib/pilotoIcons'
 
 /**
  * Sistema visual da apresentação. Palco fixo de 1280x720; todo tamanho é em px.
@@ -328,5 +330,30 @@ export function LineIcon({ name, size = 28, color = INK }: { name: 'search' | 'e
         </>
       ) : null}
     </svg>
+  )
+}
+
+/** Ícone do Piloto 45 (marca ou genérico), na cor pedida. */
+export function PilotoIcon({ name, size = 18, color = INK }: { name: PilotoIconName; size?: number; color?: string }) {
+  const icon = PILOTO_ICONS[name]
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="shrink-0">
+      {icon.fill?.map((d) => <path key={d} d={d} fill={color} />)}
+      {icon.stroke?.map((d) => (
+        <path key={d} d={d} fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      ))}
+    </svg>
+  )
+}
+
+/** Ícone dentro de um quadrado suave: leitura rápida, sem competir com o texto. */
+export function IconTile({ name, size = 40 }: { name: PilotoIconName; size?: number }) {
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center"
+      style={{ width: size, height: size, backgroundColor: SOFT, borderRadius: 10 }}
+    >
+      <PilotoIcon name={name} size={Math.round(size * 0.48)} />
+    </span>
   )
 }

@@ -1,5 +1,5 @@
 import { FUNNEL_STAGES } from '../../lib/pilotoContent'
-import { BODY, FAINT, INK, LightSlide, MUTED, onAccent, pad2 } from './deck'
+import { BODY, FAINT, INK, LightSlide, MUTED, PilotoIcon, onAccent, pad2 } from './deck'
 import { AI_FALLBACK, type SlideProps } from './slideTypes'
 
 const W = 1136
@@ -71,11 +71,11 @@ export function SlideFunil({ input, content, accent, index, total }: SlideProps)
                 <p className="text-[19px] font-medium leading-[1.4]" style={{ color: label ? BODY : FAINT }}>
                   {label || AI_FALLBACK}
                 </p>
-                <ul className="mt-5 space-y-2">
+                <ul className="mt-5 space-y-2.5">
                   {stage.channels.map((channel) => (
-                    <li key={channel} className="flex items-center gap-2.5 text-[15px] font-medium" style={{ color: MUTED }}>
-                      <span className="h-[5px] w-[5px] shrink-0" style={{ backgroundColor: INK }} aria-hidden />
-                      {channel}
+                    <li key={channel.label} className="flex items-center gap-2.5 text-[15px] font-medium" style={{ color: MUTED }}>
+                      <PilotoIcon name={channel.icon} size={16} color={INK} />
+                      {channel.label}
                     </li>
                   ))}
                 </ul>

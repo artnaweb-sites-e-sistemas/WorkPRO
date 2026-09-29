@@ -1,193 +1,303 @@
+import type { ReactNode } from 'react'
 import { cn } from '../lib/cn'
+import { SLIDE_INDEX } from './piloto'
 import type { PilotoAiContent } from '../types/piloto'
+import { PILOTO_TEXT_LIMITS as L } from '../types/piloto'
+
+export type PilotoTextSection = keyof typeof SLIDE_INDEX
 
 interface PilotoContentEditorProps {
   content: PilotoAiContent
   onChange: (next: PilotoAiContent) => void
   disabled?: boolean
+  /** seção aberta; null fecha todas */
+  openSection: PilotoTextSection | null
+  onOpenSectionChange: (section: PilotoTextSection | null) => void
 }
 
-function CharCount({ value, max }: { value: string; max: number }) {
-  const over = value.length > max
+/** Só avisa quando está perto do limite: contador permanente é ruído. */
+function LimitHint({ value, max }: { value: string; max: number }) {
+  const length = value.length
+  if (length <= max * 0.85) {
+    return null
+  }
+  const over = length - max
   return (
     <span
       className={cn(
-        'text-xs font-semibold tabular-nums',
-        over ? 'text-status-error' : 'text-muted-foreground',
+        'shrink-0 text-xs font-medium tabular-nums normal-case',
+        over > 0 ? 'text-status-error' : 'text-muted-foreground',
       )}
     >
-      {value.length}/{max}
+      {over > 0 ? `${over} acima do limite` : `faltam ${max - length}`}
     </span>
   )
 }
 
-const bareInputClassName =
-  'min-w-0 w-full border-0 bg-transparent py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60'
-const bareTextareaClassName =
-  'min-w-0 w-full resize-y border-0 bg-transparent py-3 text-base leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60'
+const fieldClassName =
+  'w-full border-b-2 border-transparent bg-surface-2 px-3 py-2.5 text-[15px] font-medium normal-case text-foreground placeholder:text-muted-foreground transition-colors focus:border-accent focus:outline-none disabled:opacity-60'
+
+function Field({
+  label,
+  value,
+  max,
+  onChange,
+  disabled,
+  multiline = false,
+  rows = 2,
+  emphasis = false,
+}: {
+  label?: string
+  value: string
+  max: number
+  onChange: (value: string) => void
+  disabled?: boolean
+  multiline?: boolean
+  rows?: number
+  emphasis?: boolean
+}) {
+  return (
+    <div>
+      {label || value.length > max * 0.85 ? (
+        <div className="mb-1.5 flex items-center justify-between gap-3">
+          {label ? <span className="text-xs font-medium normal-case text-muted-foreground">{label}</span> : <span />}
+          <LimitHint value={value} max={max} />
+        </div>
+      ) : null}
+      {multiline ? (
+        <textarea
+          value={value}
+          rows={rows}
+          disabled={disabled}
+          aria-label={label}
+          onChange={(event) => onChange(event.target.value)}
+          className={cn(fieldClassName, 'resize-none leading-relaxed', emphasis && 'font-semibold')}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          disabled={disabled}
+          aria-label={label}
+          onChange={(event) => onChange(event.target.value)}
+          className={cn(fieldClassName, emphasis && 'font-semibold')}
+        />
+      )}
+    </div>
+  )
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      className={cn('h-4 w-4 shrink-0 text-muted-foreground', open && 'rotate-180')}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
+  )
+}
+
+function Section({
+  title,
+  slideNumber,
+  summary,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string
+  slideNumber: number
+  summary: string
+  open: boolean
+  onToggle: () => void
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-4 py-4 text-left"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="flex items-baseline gap-2 text-sm font-semibold normal-case text-foreground">
+            {title}
+            <span className="text-xs font-medium tabular-nums text-muted-foreground">slide {slideNumber}</span>
+          </p>
+          {!open ? (
+            <p className="mt-1 truncate text-sm normal-case text-muted-foreground">
+              {summary || 'Ainda sem texto'}
+            </p>
+          ) : null}
+        </div>
+        <Chevron open={open} />
+      </button>
+      {open ? <div className="space-y-4 pb-6">{children}</div> : null}
+    </div>
+  )
+}
 
 export function PilotoContentEditor({
   content,
   onChange,
   disabled = false,
+  openSection,
+  onOpenSectionChange,
 }: PilotoContentEditorProps) {
   function patch(partial: Partial<PilotoAiContent>) {
     onChange({ ...content, ...partial })
   }
 
-  function updateDiagnosisLine(index: number, text: string) {
-    const next = [...content.diagnosisLines]
-    next[index] = text
-    while (next.length < 3) {
-      next.push('')
-    }
-    patch({ diagnosisLines: next.slice(0, 3) })
+  function toggle(section: PilotoTextSection) {
+    onOpenSectionChange(openSection === section ? null : section)
   }
 
-  function updateAdAngle(
-    index: number,
-    partial: Partial<PilotoAiContent['adAngles'][number]>,
-  ) {
-    const next = content.adAngles.map((angle, i) =>
-      i === index ? { ...angle, ...partial } : angle,
-    )
-    while (next.length < 3) {
-      next.push({ title: '', description: '' })
-    }
-    patch({ adAngles: next.slice(0, 3) })
+  const lines = [0, 1, 2].map((index) => content.diagnosisLines[index] ?? '')
+  const angles = [0, 1, 2].map((index) => content.adAngles[index] ?? { title: '', description: '' })
+
+  function updateLine(index: number, text: string) {
+    patch({ diagnosisLines: lines.map((line, i) => (i === index ? text : line)) })
   }
 
-  const diagnosisLines = [0, 1, 2].map((index) => content.diagnosisLines[index] ?? '')
-  const adAngles = [0, 1, 2].map(
-    (index) => content.adAngles[index] ?? { title: '', description: '' },
-  )
+  const chat = [0, 1, 2, 3].map((index) => content.chatMessages?.[index] ?? '')
+
+  function updateChat(index: number, text: string) {
+    patch({ chatMessages: chat.map((message, i) => (i === index ? text : message)) })
+  }
+
+  function updateAngle(index: number, partial: Partial<PilotoAiContent['adAngles'][number]>) {
+    patch({ adAngles: angles.map((angle, i) => (i === index ? { ...angle, ...partial } : angle)) })
+  }
+
+  const funnelFields = [
+    { key: 'funnelTopLabel' as const, label: 'Atrair' },
+    { key: 'funnelMiddleLabel' as const, label: 'Qualificar' },
+    { key: 'funnelBottomLabel' as const, label: 'Vender' },
+  ]
 
   return (
-    <div className="mt-4 space-y-6">
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-3">
-          <p className="kinetic-label">Diagnóstico — título</p>
-          <CharCount value={content.diagnosisHeadline} max={70} />
-        </div>
-        <div className="border-y border-border">
-          <input
-            type="text"
-            value={content.diagnosisHeadline}
+    <div className="divide-y divide-border">
+      <Section
+        title="Diagnóstico"
+        slideNumber={SLIDE_INDEX.diagnostico + 1}
+        summary={content.diagnosisHeadline}
+        open={openSection === 'diagnostico'}
+        onToggle={() => toggle('diagnostico')}
+      >
+        <Field
+          label="Frase principal"
+          value={content.diagnosisHeadline}
+          max={L.diagnosisHeadline}
+          onChange={(value) => patch({ diagnosisHeadline: value })}
+          disabled={disabled}
+          multiline
+          emphasis
+        />
+        {lines.map((line, index) => (
+          <Field
+            key={index}
+            label={`Linha ${index + 1}`}
+            value={line}
+            max={L.diagnosisLine}
+            onChange={(value) => updateLine(index, value)}
             disabled={disabled}
-            onChange={(event) => patch({ diagnosisHeadline: event.target.value })}
-            aria-label="Diagnóstico — título"
-            className={bareInputClassName}
+            multiline
           />
-        </div>
-      </div>
+        ))}
+      </Section>
 
-      <div className="space-y-2">
-        <p className="kinetic-label">Diagnóstico — linhas</p>
-        <ul className="divide-y divide-border border-y border-border">
-          {diagnosisLines.map((line, index) => (
-            <li key={index} className="space-y-1">
-              <div className="flex justify-end pt-2">
-                <CharCount value={line} max={130} />
-              </div>
-              <textarea
-                value={line}
-                disabled={disabled}
-                rows={2}
-                onChange={(event) => updateDiagnosisLine(index, event.target.value)}
-                aria-label={`Diagnóstico — linha ${index + 1}`}
-                className={bareTextareaClassName}
-              />
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="space-y-2">
-        <p className="kinetic-label">Funil</p>
-        <div className="grid gap-4 sm:grid-cols-3">
-          {(
-            [
-              { key: 'funnelTopLabel' as const, label: 'Atrair' },
-              { key: 'funnelMiddleLabel' as const, label: 'Qualificar' },
-              { key: 'funnelBottomLabel' as const, label: 'Vender' },
-            ] as const
-          ).map((field) => (
-            <div key={field.key} className="space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-muted-foreground">{field.label}</p>
-                <CharCount value={content[field.key]} max={60} />
-              </div>
-              <div className="border-y border-border">
-                <input
-                  type="text"
-                  value={content[field.key]}
-                  disabled={disabled}
-                  onChange={(event) => patch({ [field.key]: event.target.value })}
-                  aria-label={`Funil — ${field.label}`}
-                  className={bareInputClassName}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <p className="kinetic-label">Ângulos de anúncio</p>
-        <ul className="divide-y divide-border border-y border-border">
-          {adAngles.map((angle, index) => (
-            <li key={index} className="grid gap-3 py-2 sm:grid-cols-2">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-muted-foreground">Título</p>
-                  <CharCount value={angle.title} max={40} />
-                </div>
-                <input
-                  type="text"
-                  value={angle.title}
-                  disabled={disabled}
-                  onChange={(event) => updateAdAngle(index, { title: event.target.value })}
-                  aria-label={`Ângulo ${index + 1} — título`}
-                  className={bareInputClassName}
-                />
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-muted-foreground">Descrição</p>
-                  <CharCount value={angle.description} max={110} />
-                </div>
-                <input
-                  type="text"
-                  value={angle.description}
-                  disabled={disabled}
-                  onChange={(event) =>
-                    updateAdAngle(index, { description: event.target.value })
-                  }
-                  aria-label={`Ângulo ${index + 1} — descrição`}
-                  className={bareInputClassName}
-                />
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-3">
-          <p className="kinetic-label">Encerramento</p>
-          <CharCount value={content.closingParagraph} max={200} />
-        </div>
-        <div className="border-y border-border">
-          <textarea
-            value={content.closingParagraph}
+      <Section
+        title="Caminho do cliente"
+        slideNumber={SLIDE_INDEX.funil + 1}
+        summary={funnelFields.map((field) => content[field.key]).filter(Boolean).join(' · ')}
+        open={openSection === 'funil'}
+        onToggle={() => toggle('funil')}
+      >
+        {funnelFields.map((field) => (
+          <Field
+            key={field.key}
+            label={field.label}
+            value={content[field.key]}
+            max={L.funnelLabel}
+            onChange={(value) => patch({ [field.key]: value })}
             disabled={disabled}
-            rows={3}
-            onChange={(event) => patch({ closingParagraph: event.target.value })}
-            aria-label="Encerramento"
-            className={bareTextareaClassName}
           />
-        </div>
-      </div>
+        ))}
+      </Section>
+
+      <Section
+        title="Ideias dos vídeos"
+        slideNumber={SLIDE_INDEX.videos + 1}
+        summary={angles.map((angle) => angle.title).filter(Boolean).join(' · ')}
+        open={openSection === 'videos'}
+        onToggle={() => toggle('videos')}
+      >
+        {angles.map((angle, index) => (
+          <div key={index} className="space-y-2">
+            <Field
+              label={`Vídeo ${index + 1}`}
+              value={angle.title}
+              max={L.angleTitle}
+              onChange={(value) => updateAngle(index, { title: value })}
+              disabled={disabled}
+              emphasis
+            />
+            <Field
+              value={angle.description}
+              max={L.angleDescription}
+              onChange={(value) => updateAngle(index, { description: value })}
+              disabled={disabled}
+              multiline
+            />
+          </div>
+        ))}
+      </Section>
+
+      <Section
+        title="Conversa no WhatsApp"
+        slideNumber={SLIDE_INDEX.conversa + 1}
+        summary={chat.filter(Boolean).join(' · ')}
+        open={openSection === 'conversa'}
+        onToggle={() => toggle('conversa')}
+      >
+        <p className="text-xs normal-case text-muted-foreground">
+          Exemplo de como a IA conversaria com um cliente deste negócio. Em branco, entra uma conversa genérica.
+        </p>
+        {chat.map((message, index) => (
+          <Field
+            key={index}
+            label={index % 2 === 0 ? 'Cliente' : 'IA'}
+            value={message}
+            max={L.chatMessage}
+            onChange={(value) => updateChat(index, value)}
+            disabled={disabled}
+            multiline
+          />
+        ))}
+      </Section>
+
+      <Section
+        title="Encerramento"
+        slideNumber={SLIDE_INDEX.fechamento + 1}
+        summary={content.closingParagraph}
+        open={openSection === 'fechamento'}
+        onToggle={() => toggle('fechamento')}
+      >
+        <Field
+          value={content.closingParagraph}
+          max={L.closingParagraph}
+          onChange={(value) => patch({ closingParagraph: value })}
+          disabled={disabled}
+          multiline
+          rows={3}
+        />
+      </Section>
     </div>
   )
 }

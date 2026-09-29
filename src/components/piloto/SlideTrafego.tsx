@@ -1,5 +1,5 @@
 import { TRAFFIC_ITEMS, TRAFFIC_LOOP } from '../../lib/pilotoContent'
-import { BODY, INK, LightSlide, MUTED, RULE } from './deck'
+import { BODY, INK, LightSlide, MUTED, SOFT } from './deck'
 import type { SlideProps } from './slideTypes'
 
 const SIZE = 340
@@ -27,7 +27,7 @@ const LABEL_POSITION = [
   { left: C - R * 0.87 - 18, top: C + R * 0.5 + 8, transform: 'translateX(-100%)' },
 ]
 
-function OptimizationLoop({ accent }: { accent: string }) {
+function OptimizationLoop({ accent, halo = '#FFFFFF' }: { accent: string; halo?: string }) {
   return (
     <div className="relative shrink-0" style={{ width: SIZE, height: SIZE }}>
       <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden>
@@ -36,7 +36,7 @@ function OptimizationLoop({ accent }: { accent: string }) {
             <path d="M0,0 L10,5 L0,10 Z" fill={INK} />
           </marker>
         </defs>
-        <circle cx={C} cy={C} r={R} fill="none" stroke={RULE} strokeWidth={1} />
+        <circle cx={C} cy={C} r={R} fill="none" stroke="#D4D4D8" strokeWidth={1} />
         {ANGLES.map((angle, angleIndex) => {
           const next = ANGLES[(angleIndex + 1) % ANGLES.length]
           const to = next <= angle ? next + 360 : next
@@ -55,7 +55,7 @@ function OptimizationLoop({ accent }: { accent: string }) {
           const node = point(angle)
           return (
             <g key={`node-${angle}`}>
-              <circle cx={node.x} cy={node.y} r={13} fill="#FFFFFF" />
+              <circle cx={node.x} cy={node.y} r={13} fill={halo} />
               <circle cx={node.x} cy={node.y} r={9} fill={accent} stroke={INK} strokeWidth={2} />
             </g>
           )
@@ -94,13 +94,14 @@ export function SlideTrafego({ input, content, accent, index, total }: SlideProp
       kicker="Tráfego · dias 16 a 45"
       title="Verba real, dado real, ajuste constante"
     >
-      <div className="flex h-full items-center gap-20">
-        <div className="pl-16">
-          <OptimizationLoop accent={accent} />
+      {/* Duas metades iguais: o ciclo num painel suave, os itens alinhados ao centro dele */}
+      <div className="grid h-full grid-cols-2 gap-10">
+        <div className="flex items-center justify-center" style={{ backgroundColor: SOFT }}>
+          <OptimizationLoop accent={accent} halo={SOFT} />
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-col justify-center">
           {TRAFFIC_ITEMS.map((item) => (
-            <div key={item.title} className="border-t py-[13px] first:border-t-0" style={{ borderColor: '#EDEDEF' }}>
+            <div key={item.title} className="border-t py-[12px] first:border-t-0" style={{ borderColor: '#EDEDEF' }}>
               <p className="text-[18px] font-semibold">{item.title}</p>
               <p className="mt-0.5 text-[15px] font-medium leading-[1.45]" style={{ color: BODY }}>
                 {item.description}

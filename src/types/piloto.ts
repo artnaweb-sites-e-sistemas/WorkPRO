@@ -46,6 +46,8 @@ export interface PilotoAiContent {
   funnelMiddleLabel: string
   funnelBottomLabel: string
   adAngles: { title: string; description: string }[]
+  /** conversa de exemplo no WhatsApp, alternando cliente e atendimento: [cliente, IA, cliente, IA] */
+  chatMessages: string[]
   closingParagraph: string
 }
 
@@ -59,6 +61,20 @@ export interface PilotoDoc {
   updatedAt: Timestamp
 }
 
+/** Limites de caracteres dos textos da IA. Usados pela geração e pelo editor. */
+export const PILOTO_TEXT_LIMITS = {
+  diagnosisHeadline: 70,
+  diagnosisLine: 110,
+  /** Coluna do funil no PDF: pode quebrar em várias linhas, sem cortar com reticências */
+  funnelLabel: 90,
+  angleTitle: 40,
+  angleDescription: 110,
+  chatMessage: 90,
+  closingParagraph: 200,
+} as const
+
+export const CHAT_MESSAGE_COUNT = 4
+
 export const EMPTY_PILOTO_AI_CONTENT: PilotoAiContent = {
   diagnosisHeadline: '',
   diagnosisLines: ['', '', ''],
@@ -70,6 +86,7 @@ export const EMPTY_PILOTO_AI_CONTENT: PilotoAiContent = {
     { title: '', description: '' },
     { title: '', description: '' },
   ],
+  chatMessages: ['', '', '', ''],
   closingParagraph: '',
 }
 
@@ -77,6 +94,13 @@ const SITUATION_ANSWERS: SituationAnswer[] = ['sim', 'nao', 'nao_sei']
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+/** Remove reticências no fim (a IA às vezes corta a frase com "..."). */
+function asFunnelLabel(value: unknown): string {
+  return asString(value)
+    .replace(/(?:\s*\.{3}|\s*…)+$/u, '')
+    .trimEnd()
 }
 
 /** Texto digitado pelo usuário: sem trim, senão o espaço some enquanto ele digita. */
@@ -96,7 +120,12 @@ function normalizeSituationAnswer(value: unknown): SituationAnswer {
 
 export function normalizePilotoAiContent(raw: unknown): PilotoAiContent {
   if (!raw || typeof raw !== 'object') {
-    return { ...EMPTY_PILOTO_AI_CONTENT, diagnosisLines: ['', '', ''], adAngles: EMPTY_PILOTO_AI_CONTENT.adAngles.map((item) => ({ ...item })) }
+    return {
+      ...EMPTY_PILOTO_AI_CONTENT,
+      diagnosisLines: ['', '', ''],
+      adAngles: EMPTY_PILOTO_AI_CONTENT.adAngles.map((item) => ({ ...item })),
+      chatMessages: ['', '', '', ''],
+    }
   }
 
   const record = raw as Record<string, unknown>
@@ -120,13 +149,20 @@ export function normalizePilotoAiContent(raw: unknown): PilotoAiContent {
     }
   })
 
+  const chatRaw = Array.isArray(record.chatMessages) ? record.chatMessages : []
+  const chatMessages = Array.from({ length: CHAT_MESSAGE_COUNT }, (_, index) => {
+    const value = chatRaw[index]
+    return typeof value === 'string' ? value.trim() : ''
+  })
+
   return {
     diagnosisHeadline: asString(record.diagnosisHeadline),
     diagnosisLines,
-    funnelTopLabel: asString(record.funnelTopLabel),
-    funnelMiddleLabel: asString(record.funnelMiddleLabel),
-    funnelBottomLabel: asString(record.funnelBottomLabel),
+    funnelTopLabel: asFunnelLabel(record.funnelTopLabel),
+    funnelMiddleLabel: asFunnelLabel(record.funnelMiddleLabel),
+    funnelBottomLabel: asFunnelLabel(record.funnelBottomLabel),
     adAngles,
+    chatMessages,
     closingParagraph: asString(record.closingParagraph),
   }
 }

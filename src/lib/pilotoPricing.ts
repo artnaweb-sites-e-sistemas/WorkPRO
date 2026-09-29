@@ -76,3 +76,50 @@ export function calcInstallments(
     totalCents,
   }
 }
+
+/**
+ * Continuidade depois do piloto. Não entra no preço da proposta: aparece só como
+ * "a partir de" no dia 45 e, completa, no slide de apoio que fica depois do fechamento.
+ */
+export interface ContinuationPlan {
+  id: 'site' | 'site-whatsapp' | 'completo'
+  name: string
+  includes: string[]
+  monthlyCents: number
+  note: string | null
+  /** para quem esse plano faz sentido, em uma frase */
+  fit: string
+  highlighted: boolean
+}
+
+export const CONTINUATION_PLANS: ContinuationPlan[] = [
+  {
+    id: 'site',
+    name: 'Site',
+    includes: ['Página de vendas no ar', 'Hospedagem e manutenção'],
+    monthlyCents: 25000,
+    note: null,
+    fit: 'Para manter a página no ar e seguir recebendo contatos por ela.',
+    highlighted: false,
+  },
+  {
+    id: 'site-whatsapp',
+    name: 'Site + WhatsApp',
+    includes: ['Tudo do plano Site', 'WhatsApp com IA e gestão dos contatos'],
+    monthlyCents: 99700,
+    note: null,
+    fit: 'Para seguir atendendo com a IA e sem perder nenhum contato.',
+    highlighted: false,
+  },
+  {
+    id: 'completo',
+    name: 'Completo',
+    includes: ['Tudo do Site + WhatsApp', 'Gestão e otimização dos anúncios'],
+    monthlyCents: 300000,
+    note: 'verba de anúncio à parte',
+    fit: 'Para continuar crescendo com os anúncios que deram resultado.',
+    highlighted: true,
+  },
+]
+
+export const CONTINUATION_FROM_CENTS = Math.min(...CONTINUATION_PLANS.map((plan) => plan.monthlyCents))

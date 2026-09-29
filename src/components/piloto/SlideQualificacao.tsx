@@ -1,25 +1,35 @@
 import {
-  CHAT_EXAMPLE,
+  CHAT_HANDOFF,
   QUALIFICATION_COPY,
   QUALIFICATION_POINTS,
   TEMPERATURE_LANES,
+  resolveChat,
 } from '../../lib/pilotoContent'
 import { BODY, CheckIcon, FAINT, INK, LightSlide, MUTED, RULE, SOFT, SignalBars } from './deck'
 import type { SlideProps } from './slideTypes'
 
-const PHONE_H = 420
-const LANE_CENTERS = [70, 210, 350]
-const CONNECTOR_W = 64
+const PHONE_W = 316
+const PHONE_H = 452
+const LANE_CENTERS = [74, 226, 378]
+const CONNECTOR_W = 52
 
 /** O WhatsApp é o do lead: avatar com a inicial dele, nunca a marca da agência. */
-function PhoneMock({ accent, name }: { accent: string; name: string }) {
+function PhoneMock({
+  accent,
+  name,
+  messages,
+}: {
+  accent: string
+  name: string
+  messages: { from: 'lead' | 'ai'; text: string }[]
+}) {
   return (
     <div
       className="flex shrink-0 flex-col overflow-hidden bg-white"
-      style={{ width: 272, height: PHONE_H, borderRadius: 30, border: `1.5px solid ${RULE}` }}
+      style={{ width: PHONE_W, height: PHONE_H, borderRadius: 30, border: `1.5px solid ${RULE}` }}
       aria-hidden
     >
-      <div className="flex items-center gap-3 px-5 pb-3 pt-5" style={{ backgroundColor: SOFT }}>
+      <div className="flex items-center gap-3 px-5 pb-3 pt-4" style={{ backgroundColor: SOFT }}>
         <span
           className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden bg-white"
           style={{ borderRadius: 999, border: `1px solid ${RULE}` }}
@@ -34,23 +44,25 @@ function PhoneMock({ accent, name }: { accent: string; name: string }) {
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-2.5 px-4 py-5" style={{ backgroundColor: '#FAFAFA' }}>
-        {CHAT_EXAMPLE.map((message) =>
+      <div className="flex flex-1 flex-col gap-2 px-4 pb-3 pt-3.5" style={{ backgroundColor: '#FAFAFA' }}>
+        {messages.map((message, index) =>
           message.from === 'lead' ? (
             <p
-              key={message.text}
-              className="max-w-[80%] self-start bg-white px-3.5 py-2.5 text-[14px] font-medium leading-[1.4]"
+              key={index}
+              className="max-w-[84%] self-start bg-white px-3 py-1.5 text-[13px] font-medium leading-[1.4]"
               style={{ border: `1px solid ${RULE}`, borderRadius: '4px 14px 14px 14px' }}
             >
               {message.text}
             </p>
           ) : (
-            <div key={message.text} className="max-w-[86%] self-end">
-              <p className="mb-1 text-right text-[11px] font-semibold" style={{ color: MUTED }}>
-                IA · agora
-              </p>
+            <div key={index} className="max-w-[90%] self-end">
+              {index === 1 ? (
+                <p className="mb-1 text-right text-[11px] font-semibold" style={{ color: MUTED }}>
+                  IA · respondeu em segundos
+                </p>
+              ) : null}
               <p
-                className="px-3.5 py-2.5 text-[14px] font-medium leading-[1.4]"
+                className="px-3 py-1.5 text-[13px] font-medium leading-[1.4]"
                 style={{ backgroundColor: `${accent}40`, borderRadius: '14px 4px 14px 14px' }}
               >
                 {message.text}
@@ -59,13 +71,13 @@ function PhoneMock({ accent, name }: { accent: string; name: string }) {
           ),
         )}
 
-        <div className="mt-auto flex justify-center">
+        <div className="mt-auto flex justify-center pt-2">
           <span
             className="flex items-center gap-2 px-3.5 py-2 text-[12px] font-semibold text-white"
             style={{ backgroundColor: INK, borderRadius: 999 }}
           >
             <span className="h-2 w-2" style={{ backgroundColor: accent, borderRadius: 999 }} />
-            Lead quente · avisando você
+            {CHAT_HANDOFF}
           </span>
         </div>
       </div>
@@ -92,8 +104,8 @@ function Connector() {
 }
 
 export function SlideQualificacao({ input, content, accent, index, total }: SlideProps) {
-  void content
   const businessName = input.leadCompanyName.trim() || 'Seu negócio'
+  const messages = resolveChat(content.chatMessages ?? [])
 
   return (
     <LightSlide
@@ -102,14 +114,14 @@ export function SlideQualificacao({ input, content, accent, index, total }: Slid
       index={index}
       total={total}
       kicker="Atendimento com IA"
-      title="Ninguém fica sem resposta"
+      title="Nenhuma conversa se perde"
     >
-      <div className="flex h-full items-center gap-14">
-        <div className="w-[360px] shrink-0">
-          <p className="text-[20px] font-medium leading-[1.45]" style={{ color: BODY }}>
+      <div className="flex h-full items-center gap-10">
+        <div className="w-[320px] shrink-0">
+          <p className="text-[19px] font-medium leading-[1.5]" style={{ color: BODY }}>
             {QUALIFICATION_COPY}
           </p>
-          <ul className="mt-8 space-y-3.5">
+          <ul className="mt-7 space-y-3">
             {QUALIFICATION_POINTS.map((point) => (
               <li key={point} className="flex items-center gap-3 text-[16px] font-semibold">
                 <CheckIcon size={17} />
@@ -120,7 +132,7 @@ export function SlideQualificacao({ input, content, accent, index, total }: Slid
         </div>
 
         <div className="flex flex-1 items-center" style={{ height: PHONE_H }}>
-          <PhoneMock accent={accent} name={businessName} />
+          <PhoneMock accent={accent} name={businessName} messages={messages} />
           <Connector />
           <div className="relative flex-1" style={{ height: PHONE_H }}>
             {TEMPERATURE_LANES.map((lane, laneIndex) => (
@@ -133,7 +145,7 @@ export function SlideQualificacao({ input, content, accent, index, total }: Slid
                   <SignalBars level={lane.level} />
                   <span className="text-[20px] font-bold tracking-[-0.01em]">{lane.name}</span>
                 </div>
-                <p className="mt-1 pl-[27px] text-[15px] font-medium" style={{ color: BODY }}>
+                <p className="mt-1 pl-[27px] text-[15px] font-medium leading-[1.4]" style={{ color: BODY }}>
                   {lane.action}
                 </p>
               </div>

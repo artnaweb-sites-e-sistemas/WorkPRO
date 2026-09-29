@@ -1,5 +1,5 @@
 import { FOUNDATION_GROUPS } from '../../lib/pilotoContent'
-import { BODY, INK, LightSlide, MUTED } from './deck'
+import { BODY, INK, IconTile, LightSlide, MUTED } from './deck'
 import type { SlideProps } from './slideTypes'
 
 export function SlideFundacao({ input, content, accent, index, total }: SlideProps) {
@@ -27,13 +27,16 @@ export function SlideFundacao({ input, content, accent, index, total }: SlidePro
               {group.items.map((item) => (
                 <div
                   key={item.title}
-                  className="border-t py-5 first:border-t-0"
+                  className="flex gap-4 border-t py-[18px] first:border-t-0"
                   style={{ borderColor: '#EDEDEF' }}
                 >
-                  <p className="text-[19px] font-semibold tracking-[-0.01em]">{item.title}</p>
-                  <p className="mt-1 text-[15.5px] font-medium leading-[1.45]" style={{ color: BODY }}>
-                    {item.description}
-                  </p>
+                  {item.icon ? <IconTile name={item.icon} size={40} /> : null}
+                  <div className="min-w-0">
+                    <p className="text-[18px] font-semibold leading-tight tracking-[-0.01em]">{item.title}</p>
+                    <p className="mt-1 text-[14.5px] font-medium leading-[1.45]" style={{ color: BODY }}>
+                      {item.description}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
