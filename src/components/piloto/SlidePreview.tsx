@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '../../lib/cn'
 import type { PilotoAiContent, PilotoInput } from '../../types/piloto'
-import { SLIDES } from './index'
+import { getPilotoSlides } from './index'
 
 const STAGE_W = 1280
 const STAGE_H = 720
@@ -14,6 +14,8 @@ interface SlidePreviewProps {
   accent: string
   index: number
   onIndexChange: (index: number) => void
+  /** Quando false, omite o slide "Se fizer sentido continuar". */
+  showContinuation?: boolean
 }
 
 function ChevronIcon({ direction }: { direction: 'left' | 'right' }) {
@@ -29,12 +31,28 @@ function ChevronIcon({ direction }: { direction: 'left' | 'right' }) {
 }
 
 /** Prévia da apresentação: slide atual em escala + miniaturas para pular direto. */
-export function SlidePreview({ input, content, accent, index, onIndexChange }: SlidePreviewProps) {
+export function SlidePreview({
+  input,
+  content,
+  accent,
+  index,
+  onIndexChange,
+  showContinuation = false,
+}: SlidePreviewProps) {
   const frameRef = useRef<HTMLDivElement>(null)
   const thumbsRef = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(0.5)
-  const total = SLIDES.length
-  const Slide = SLIDES[index]
+  const slides = useMemo(() => getPilotoSlides(showContinuation), [showContinuation])
+  const total = slides.length
+  const safeIndex = Math.min(index, Math.max(0, total - 1))
+  const Slide = slides[safeIndex]
+  const isContinuation = showContinuation && safeIndex === total - 2
+
+  useEffect(() => {
+    if (index > total - 1) {
+      onIndexChange(Math.max(0, total - 1))
+    }
+  }, [index, total, onIndexChange])
 
   useEffect(() => {
     const node = frameRef.current
@@ -53,12 +71,16 @@ export function SlidePreview({ input, content, accent, index, onIndexChange }: S
 
   useEffect(() => {
     const strip = thumbsRef.current
-    const active = strip?.querySelector<HTMLElement>(`[data-thumb="${index}"]`)
+    const active = strip?.querySelector<HTMLElement>(`[data-thumb="${safeIndex}"]`)
     active?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [index])
+  }, [safeIndex])
 
   function go(next: number) {
     onIndexChange(Math.max(0, Math.min(total - 1, next)))
+  }
+
+  if (!Slide) {
+    return null
   }
 
   return (
@@ -69,7 +91,7 @@ export function SlidePreview({ input, content, accent, index, onIndexChange }: S
         style={{ height: STAGE_H * scale }}
       >
         <div style={{ width: STAGE_W, height: STAGE_H, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
-          <Slide input={input} content={content} accent={accent} index={index} total={total} />
+          <Slide input={input} content={content} accent={accent} index={safeIndex} total={total} />
         </div>
       </div>
 
@@ -78,42 +100,42 @@ export function SlidePreview({ input, content, accent, index, onIndexChange }: S
           <button
             type="button"
             aria-label="Slide anterior"
-            disabled={index === 0}
-            onClick={() => go(index - 1)}
+            disabled={safeIndex === 0}
+            onClick={() => go(safeIndex - 1)}
             className="flex h-9 w-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
           >
             <ChevronIcon direction="left" />
           </button>
           <span className="min-w-[56px] text-center text-sm font-medium tabular-nums text-muted-foreground">
-            {index + 1} / {total}
+            {safeIndex + 1} / {total}
           </span>
           <button
             type="button"
             aria-label="Próximo slide"
-            disabled={index === total - 1}
-            onClick={() => go(index + 1)}
+            disabled={safeIndex === total - 1}
+            onClick={() => go(safeIndex + 1)}
             className="flex h-9 w-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
           >
             <ChevronIcon direction="right" />
           </button>
         </div>
-        {index === total - 1 ? (
-          <span className="text-xs text-muted-foreground">Slide de apoio: só se o cliente perguntar</span>
+        {isContinuation ? (
+          <span className="text-xs text-muted-foreground">Slide de continuidade</span>
         ) : null}
       </div>
 
       <div ref={thumbsRef} className="mt-2 flex gap-2 overflow-x-auto pb-2">
-        {SLIDES.map((Thumb, thumbIndex) => (
+        {slides.map((Thumb, thumbIndex) => (
           <button
             key={thumbIndex}
             type="button"
             data-thumb={thumbIndex}
             aria-label={`Ir para o slide ${thumbIndex + 1}`}
-            aria-current={thumbIndex === index ? 'true' : undefined}
+            aria-current={thumbIndex === safeIndex ? 'true' : undefined}
             onClick={() => go(thumbIndex)}
             className={cn(
               'relative shrink-0 overflow-hidden border-2 transition-colors',
-              thumbIndex === index ? 'border-accent' : 'border-transparent opacity-70 hover:opacity-100',
+              thumbIndex === safeIndex ? 'border-accent' : 'border-transparent opacity-70 hover:opacity-100',
             )}
             style={{ width: THUMB_W + 4, height: STAGE_H * THUMB_SCALE + 4 }}
           >

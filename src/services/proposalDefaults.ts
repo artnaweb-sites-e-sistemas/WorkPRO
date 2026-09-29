@@ -22,6 +22,7 @@ const DEFAULT_PROPOSAL_DEFAULTS: ProposalDefaults = {
   websiteUrl: '',
   accentColor: DEFAULT_ACCENT_COLOR,
   tagline: 'Desenvolvimento web & sistemas',
+  pilotoShowContinuation: false,
 }
 
 function requireUserUid(): string {
@@ -61,6 +62,7 @@ function mergeWithDefaults(data: Record<string, unknown>): ProposalDefaults {
       typeof data.tagline === 'string' && data.tagline.trim()
         ? data.tagline
         : DEFAULT_PROPOSAL_DEFAULTS.tagline,
+    pilotoShowContinuation: data.pilotoShowContinuation === true,
   }
 }
 

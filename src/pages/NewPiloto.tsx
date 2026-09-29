@@ -7,11 +7,11 @@ import { PilotoBrandFields } from '../components/PilotoBrandFields'
 import type { PilotoBrand } from '../components/PilotoBrandFields'
 import { PilotoContentEditor } from '../components/PilotoContentEditor'
 import type { PilotoTextSection } from '../components/PilotoContentEditor'
-import { SLIDE_INDEX } from '../components/piloto'
+import { getPilotoSlideIndex } from '../components/piloto'
 import { SlidePreview } from '../components/piloto/SlidePreview'
 import { ProposalPdfPagedPreview } from '../components/ProposalPdfPagedPreview'
 import { ProposalStatusSelector } from '../components/ProposalStatusSelector'
-import { Button, DownloadIcon, Input, Spinner, Textarea } from '../components/ui'
+import { Button, DownloadIcon, Input, Spinner, Switch, Textarea } from '../components/ui'
 import { formatCurrencyBRL, maskCurrencyBRLInput, parseCurrencyBRL } from '../lib/currencyBRL'
 import { sanitizeFilename } from '../lib/filename'
 import { AGENCY_DEAL_CENTS, DEFAULT_INSTALLMENT_FEE_RATE, calcInstallments } from '../lib/pilotoPricing'
@@ -228,6 +228,7 @@ export default function NewPiloto() {
     [input.installmentFeeRate],
   )
   const contentEmpty = isContentEmpty(content)
+  const showContinuation = brandDefaults?.pilotoShowContinuation === true
   const missing = [
     !input.leadCompanyName.trim() ? 'empresa' : null,
     !input.leadNiche.trim() ? 'nicho' : null,
@@ -409,6 +410,17 @@ export default function NewPiloto() {
     }, 600)
   }
 
+  function setShowContinuation(checked: boolean) {
+    if (!brandDefaults) {
+      return
+    }
+    const next = { ...brandDefaults, pilotoShowContinuation: checked }
+    setBrandDefaults(next)
+    void saveProposalDefaults(next).catch((error) => {
+      console.error('[NewPiloto] saveProposalDefaults continuation', error)
+    })
+  }
+
   /** Cria o documento na primeira vez; depois disso o salvamento é automático. */
   async function ensureCreated(nextContent: PilotoAiContent): Promise<string> {
     if (pilotoIdRef.current) {
@@ -428,7 +440,7 @@ export default function NewPiloto() {
     setOpenSection(section)
     if (section) {
       setPreviewTab('deck')
-      setSlideIndex(SLIDE_INDEX[section])
+      setSlideIndex(getPilotoSlideIndex(section, showContinuation))
     }
   }
 
@@ -514,7 +526,9 @@ export default function NewPiloto() {
     setDownloading(true)
     setActionError('')
     try {
-      const blob = await pdf(<PilotoPdfDocument input={input} content={content} />).toBlob()
+      const blob = await pdf(
+        <PilotoPdfDocument input={input} content={content} showContinuation={showContinuation} />,
+      ).toBlob()
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
@@ -734,6 +748,15 @@ export default function NewPiloto() {
                 ou 10x de {formatCurrencyBRL(installments.installmentCents)} (total{' '}
                 {formatCurrencyBRL(installments.totalCents)}).
               </p>
+
+              <div className="mt-5 border-t border-border pt-4">
+                <Switch
+                  label="Exibir planos recorrentes"
+                  labelPosition="before"
+                  checked={showContinuation}
+                  onChange={setShowContinuation}
+                />
+              </div>
             </PanelSection>
 
             <section className="border-t border-border px-6 py-5">
@@ -766,6 +789,7 @@ export default function NewPiloto() {
                       disabled={busy}
                       openSection={openSection}
                       onOpenSectionChange={openTextSection}
+                      showContinuation={showContinuation}
                     />
                   </div>
                   <div className="mt-4 border-t border-border pt-5">
@@ -849,13 +873,20 @@ export default function NewPiloto() {
                 accent={accent}
                 index={slideIndex}
                 onIndexChange={setSlideIndex}
+                showContinuation={showContinuation}
               />
             ) : (
               <ProposalPdfPagedPreview
-                document={<PilotoPdfDocument input={input} content={content} />}
+                document={
+                  <PilotoPdfDocument
+                    input={input}
+                    content={content}
+                    showContinuation={showContinuation}
+                  />
+                }
                 pageAspect="810 / 1440"
                 revision={PILOTO_PDF_LAYOUT_REVISION}
-                sourceKey={JSON.stringify({ input, content })}
+                sourceKey={JSON.stringify({ input, content, showContinuation })}
               />
             )}
 

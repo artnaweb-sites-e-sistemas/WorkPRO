@@ -32,10 +32,11 @@ import {
   AGENCY_DEAL_CENTS,
   AGENCY_LIST_CENTS,
   CONTINUATION_FROM_CENTS,
+  CONTINUATION_PLANS,
   PILOTO_PLANS,
   calcInstallments,
 } from '../lib/pilotoPricing'
-import type { PilotoPlan } from '../lib/pilotoPricing'
+import type { ContinuationPlan, PilotoPlan } from '../lib/pilotoPricing'
 import type { PilotoAiContent, PilotoInput, SituationAnswer } from '../types/piloto'
 import {
   accentColorRgbChannels,
@@ -56,8 +57,9 @@ import {
 } from './ProposalPdfDocument'
 
 /** Sobe quando o layout muda sem alterar input/content, para o preview regenerar. */
-export const PILOTO_PDF_LAYOUT_REVISION = 12
+export const PILOTO_PDF_LAYOUT_REVISION = 15
 export const PILOTO_PDF_PAGE_COUNT = 8
+export const PILOTO_PDF_PAGE_COUNT_WITH_CONTINUATION = 9
 
 const BLACK = '#000000'
 const DARK = '#0B0B0B'
@@ -89,6 +91,8 @@ const s = StyleSheet.create({
 interface PilotoPdfDocumentProps {
   input: PilotoInput
   content: PilotoAiContent
+  /** Inclui a página "Se fizer sentido continuar" (padrão: true). */
+  showContinuation?: boolean
 }
 
 function pad2(value: number): string {
@@ -608,6 +612,104 @@ function PlanCard({ plan, accent, onAccent, hero }: { plan: PilotoPlan; accent: 
   )
 }
 
+function ContinuationCard({
+  plan,
+  accent,
+  onAccent,
+  hero,
+}: {
+  plan: ContinuationPlan
+  accent: string
+  onAccent: string
+  hero: boolean
+}) {
+  const text = hero ? '#FFFFFF' : BLACK
+  const soft = hero ? '#9B9B9B' : SOFT_TEXT
+  const ruleColor = hero ? '#2E2E2E' : RULE
+  const body = hero ? '#D4D4D8' : BODY
+
+  return (
+    <View
+      style={{
+        backgroundColor: hero ? DARK : '#FFFFFF',
+        borderWidth: hero ? 0 : 1.5,
+        borderColor: RULE,
+        borderRadius: 12,
+        paddingHorizontal: hero ? 26 : 20,
+        paddingVertical: hero ? 24 : 18,
+        flex: hero ? undefined : 1,
+      }}
+      wrap={false}
+    >
+      {hero ? (
+        <View
+          style={{
+            alignSelf: 'flex-start',
+            backgroundColor: accent,
+            paddingHorizontal: 9,
+            paddingVertical: 4,
+            marginBottom: 12,
+          }}
+        >
+          <Text style={{ fontFamily: FONT, fontWeight: 700, fontSize: 11, color: onAccent }}>Recomendado</Text>
+        </View>
+      ) : null}
+
+      <View
+        style={{
+          flexDirection: hero ? 'row' : 'column',
+          justifyContent: 'space-between',
+          alignItems: hero ? 'flex-end' : 'flex-start',
+        }}
+      >
+        <View>
+          <Text style={{ fontFamily: FONT, fontWeight: 700, fontSize: hero ? 22 : 17, color: text }}>
+            {plan.name}
+          </Text>
+          {plan.note ? (
+            <Text style={{ fontFamily: FONT, fontSize: 12.5, color: soft, marginTop: 2 }}>{plan.note}</Text>
+          ) : null}
+        </View>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'flex-end',
+            marginTop: hero ? 0 : 12,
+          }}
+        >
+          <Text style={{ fontFamily: FONT, fontWeight: 700, fontSize: hero ? 38 : 28, color: text }}>
+            {formatCurrencyBRL(plan.monthlyCents)}
+          </Text>
+          <Text style={{ fontFamily: FONT, fontSize: hero ? 14 : 12, color: soft, marginLeft: 4, marginBottom: hero ? 8 : 5 }}>
+            /mês
+          </Text>
+        </View>
+      </View>
+
+      <View style={{ marginTop: hero ? 16 : 10 }}>
+        {plan.includes.map((item) => (
+          <View
+            key={item}
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              borderTopWidth: 1,
+              borderTopColor: ruleColor,
+              paddingVertical: 6,
+            }}
+          >
+            <Text style={{ fontFamily: FONT, fontSize: 12.5, color: soft, flex: 1 }}>{item}</Text>
+          </View>
+        ))}
+      </View>
+
+      <Text style={{ fontFamily: FONT, fontSize: 13, lineHeight: 1.4, color: body, marginTop: 10 }}>
+        {plan.fit}
+      </Text>
+    </View>
+  )
+}
+
 const SITUATION_COPY: {
   key: keyof Pick<PilotoInput, 'hasWebsite' | 'runsAds' | 'whatsappOrganized'>
   label: string
@@ -619,7 +721,11 @@ const SITUATION_COPY: {
   { key: 'whatsappOrganized', label: 'WhatsApp', yes: 'Organizado', no: 'Sem processo' },
 ]
 
-export function PilotoPdfDocument({ input, content }: PilotoPdfDocumentProps): ReactElement {
+export function PilotoPdfDocument({
+  input,
+  content,
+  showContinuation = false,
+}: PilotoPdfDocumentProps): ReactElement {
   const accent = normalizeAccentColor(input.accentColor)
   const onAccent = accentForegroundColor(accent)
   const installments = calcInstallments(AGENCY_DEAL_CENTS, input.installmentFeeRate)
@@ -997,7 +1103,41 @@ export function PilotoPdfDocument({ input, content }: PilotoPdfDocumentProps): R
         </View>
       </LightPage>
 
-      {/* 8 · Fechamento — mesma estrutura do fechamento da proposta */}
+      {showContinuation ? (
+        <LightPage input={input} accent={accent}>
+          <View wrap={false}>
+            <SectionHeading title="Se fizer sentido continuar" accent={accent} />
+            <Text style={[s.body, { fontSize: 15, marginBottom: 18 }]}>
+              Depois dos 45 dias, você decide. Nada é automático.
+            </Text>
+            {(() => {
+              const heroPlan =
+                CONTINUATION_PLANS.find((plan) => plan.highlighted) ?? CONTINUATION_PLANS[CONTINUATION_PLANS.length - 1]
+              const sidePlans = CONTINUATION_PLANS.filter((plan) => plan.id !== heroPlan.id)
+              return (
+                <View>
+                  <View style={{ flexDirection: 'row' }}>
+                    {sidePlans.map((plan, index) => (
+                      <View
+                        key={plan.id}
+                        style={{ flex: 1, marginLeft: index === 0 ? 0 : 14, flexDirection: 'row' }}
+                      >
+                        <ContinuationCard plan={plan} accent={accent} onAccent={onAccent} hero={false} />
+                      </View>
+                    ))}
+                  </View>
+                  <View style={{ marginTop: 14 }}>
+                    <ContinuationCard plan={heroPlan} accent={accent} onAccent={onAccent} hero />
+                  </View>
+                </View>
+              )
+            })()}
+            <Text style={[s.note, { marginTop: 20 }]}>{RECURRENCE_NOTE}</Text>
+          </View>
+        </LightPage>
+      ) : null}
+
+      {/* Fechamento — mesma estrutura do fechamento da proposta */}
       <Page size={[PAGE_W, PAGE_H]} style={P.pageDark}>
         <DarkBackground />
         <CoverLogo logoDataUrl={input.logoDataUrl} companyName={input.companyName} />

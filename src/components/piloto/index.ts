@@ -17,12 +17,7 @@ import type { SlideProps } from './slideTypes'
 
 export type { SlideProps } from './slideTypes'
 
-/**
- * Ordem da reunião: reconhecer o problema, entender o método, ver o plano, ver o preço.
- * O preço vem só no fim, depois que o valor já foi construído. O último slide é de apoio:
- * fica depois do fechamento e só aparece se o cliente perguntar sobre a continuidade.
- */
-export const SLIDES: ComponentType<SlideProps>[] = [
+const CORE_SLIDES: ComponentType<SlideProps>[] = [
   SlideCapa,
   SlideDiagnostico,
   SlideProblema,
@@ -36,14 +31,42 @@ export const SLIDES: ComponentType<SlideProps>[] = [
   SlideDia45,
   SlideInvestimento,
   SlideProximosPassos,
-  SlideContinuidade,
 ]
 
-/** Índice do slide de cada bloco de texto da IA, para o editor pular a prévia até ele. */
+/**
+ * Ordem da reunião: reconhecer o problema, entender o método, ver o plano, ver o preço.
+ * O preço vem só no fim. A continuidade (opcional) fica imediatamente antes do fechamento.
+ */
+export function getPilotoSlides(showContinuation = false): ComponentType<SlideProps>[] {
+  if (!showContinuation) {
+    return CORE_SLIDES
+  }
+  const closing = CORE_SLIDES[CORE_SLIDES.length - 1]
+  return [...CORE_SLIDES.slice(0, -1), SlideContinuidade, closing]
+}
+
+/** Lista completa (com continuidade) — útil para índices fixos do editor. */
+export const SLIDES = getPilotoSlides(true)
+
+/**
+ * Índice base sem o slide de continuidade.
+ * Com continuidade ligada, o fechamento sobe 1 (continuidade entra antes dele).
+ */
 export const SLIDE_INDEX = {
   diagnostico: 1,
   funil: 3,
   videos: 6,
   conversa: 8,
-  fechamento: 12,
+  fechamento: CORE_SLIDES.length - 1,
 } as const
+
+export function getPilotoSlideIndex(
+  section: keyof typeof SLIDE_INDEX,
+  showContinuation: boolean,
+): number {
+  const base = SLIDE_INDEX[section]
+  if (section === 'fechamento' && showContinuation) {
+    return base + 1
+  }
+  return base
+}

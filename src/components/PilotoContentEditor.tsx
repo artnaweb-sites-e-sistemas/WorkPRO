@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { cn } from '../lib/cn'
-import { SLIDE_INDEX } from './piloto'
+import { getPilotoSlideIndex, SLIDE_INDEX } from './piloto'
 import type { PilotoAiContent } from '../types/piloto'
 import { PILOTO_TEXT_LIMITS as L } from '../types/piloto'
 
@@ -13,6 +13,7 @@ interface PilotoContentEditorProps {
   /** seção aberta; null fecha todas */
   openSection: PilotoTextSection | null
   onOpenSectionChange: (section: PilotoTextSection | null) => void
+  showContinuation?: boolean
 }
 
 /** Só avisa quando está perto do limite: contador permanente é ruído. */
@@ -149,6 +150,7 @@ export function PilotoContentEditor({
   disabled = false,
   openSection,
   onOpenSectionChange,
+  showContinuation = false,
 }: PilotoContentEditorProps) {
   function patch(partial: Partial<PilotoAiContent>) {
     onChange({ ...content, ...partial })
@@ -156,6 +158,10 @@ export function PilotoContentEditor({
 
   function toggle(section: PilotoTextSection) {
     onOpenSectionChange(openSection === section ? null : section)
+  }
+
+  function slideNumber(section: PilotoTextSection): number {
+    return getPilotoSlideIndex(section, showContinuation) + 1
   }
 
   const lines = [0, 1, 2].map((index) => content.diagnosisLines[index] ?? '')
@@ -185,7 +191,7 @@ export function PilotoContentEditor({
     <div className="divide-y divide-border">
       <Section
         title="Diagnóstico"
-        slideNumber={SLIDE_INDEX.diagnostico + 1}
+        slideNumber={slideNumber('diagnostico')}
         summary={content.diagnosisHeadline}
         open={openSection === 'diagnostico'}
         onToggle={() => toggle('diagnostico')}
@@ -214,7 +220,7 @@ export function PilotoContentEditor({
 
       <Section
         title="Caminho do cliente"
-        slideNumber={SLIDE_INDEX.funil + 1}
+        slideNumber={slideNumber('funil')}
         summary={funnelFields.map((field) => content[field.key]).filter(Boolean).join(' · ')}
         open={openSection === 'funil'}
         onToggle={() => toggle('funil')}
@@ -233,7 +239,7 @@ export function PilotoContentEditor({
 
       <Section
         title="Ideias dos vídeos"
-        slideNumber={SLIDE_INDEX.videos + 1}
+        slideNumber={slideNumber('videos')}
         summary={angles.map((angle) => angle.title).filter(Boolean).join(' · ')}
         open={openSection === 'videos'}
         onToggle={() => toggle('videos')}
@@ -261,7 +267,7 @@ export function PilotoContentEditor({
 
       <Section
         title="Conversa no WhatsApp"
-        slideNumber={SLIDE_INDEX.conversa + 1}
+        slideNumber={slideNumber('conversa')}
         summary={chat.filter(Boolean).join(' · ')}
         open={openSection === 'conversa'}
         onToggle={() => toggle('conversa')}
@@ -284,7 +290,7 @@ export function PilotoContentEditor({
 
       <Section
         title="Encerramento"
-        slideNumber={SLIDE_INDEX.fechamento + 1}
+        slideNumber={slideNumber('fechamento')}
         summary={content.closingParagraph}
         open={openSection === 'fechamento'}
         onToggle={() => toggle('fechamento')}

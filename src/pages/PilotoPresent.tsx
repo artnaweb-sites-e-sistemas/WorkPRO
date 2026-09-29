@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { SLIDES } from '../components/piloto'
+import { getPilotoSlides } from '../components/piloto'
 import { Spinner } from '../components/ui'
 import { getPiloto } from '../services/pilotos'
+import { getProposalDefaults } from '../services/proposalDefaults'
 import type { PilotoAiContent, PilotoInput } from '../types/piloto'
 import { EMPTY_PILOTO_AI_CONTENT } from '../types/piloto'
 import {
@@ -12,6 +13,21 @@ import {
 
 const STAGE_W = 1280
 const STAGE_H = 720
+
+/** Cursor customizado: círculo escuro + seta para a esquerda / direita. */
+function navCursor(direction: 'left' | 'right'): string {
+  const points = direction === 'left' ? '14,7 8,12 14,17' : '10,7 16,12 10,17'
+  const svg = encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
+      `<circle cx="16" cy="16" r="14" fill="#0B0B0B" fill-opacity="0.88"/>` +
+      `<polyline points="${points}" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `</svg>`,
+  )
+  return `url("data:image/svg+xml,${svg}") 16 16, ${direction === 'left' ? 'w-resize' : 'e-resize'}`
+}
+
+const CURSOR_PREV = navCursor('left')
+const CURSOR_NEXT = navCursor('right')
 
 function FullscreenIcon() {
   return (
@@ -30,9 +46,12 @@ export default function PilotoPresent() {
   const [notFound, setNotFound] = useState(false)
   const [input, setInput] = useState<PilotoInput | null>(null)
   const [content, setContent] = useState<PilotoAiContent>(EMPTY_PILOTO_AI_CONTENT)
+  const [showContinuation, setShowContinuation] = useState(false)
   const [slideIndex, setSlideIndex] = useState(0)
   const [scale, setScale] = useState(1)
   const [fadeKey, setFadeKey] = useState(0)
+
+  const slides = useMemo(() => getPilotoSlides(showContinuation), [showContinuation])
 
   useEffect(() => {
     if (!id) {
@@ -42,8 +61,8 @@ export default function PilotoPresent() {
     }
 
     let cancelled = false
-    void getPiloto(id)
-      .then((doc) => {
+    void Promise.all([getPiloto(id), getProposalDefaults()])
+      .then(([doc, defaults]) => {
         if (cancelled) {
           return
         }
@@ -53,6 +72,7 @@ export default function PilotoPresent() {
         }
         setInput(doc.input)
         setContent(doc.content)
+        setShowContinuation(defaults.pilotoShowContinuation === true)
       })
       .catch((error) => {
         console.error('[PilotoPresent]', error)
@@ -87,8 +107,14 @@ export default function PilotoPresent() {
     wrapperRef.current?.focus()
   }, [loading, notFound])
 
+  useEffect(() => {
+    if (slideIndex > slides.length - 1) {
+      setSlideIndex(Math.max(0, slides.length - 1))
+    }
+  }, [slides.length, slideIndex])
+
   function goTo(next: number) {
-    const clamped = Math.max(0, Math.min(SLIDES.length - 1, next))
+    const clamped = Math.max(0, Math.min(slides.length - 1, next))
     if (clamped === slideIndex) {
       return
     }
@@ -112,7 +138,7 @@ export default function PilotoPresent() {
       }
       if (event.key === 'End') {
         event.preventDefault()
-        goTo(SLIDES.length - 1)
+        goTo(slides.length - 1)
       }
       if (event.key === 'f' || event.key === 'F') {
         event.preventDefault()
@@ -160,8 +186,8 @@ export default function PilotoPresent() {
   }
 
   const accent = normalizeAccentColor(input.accentColor)
-  const Slide = SLIDES[slideIndex]
-  const progress = ((slideIndex + 1) / SLIDES.length) * 100
+  const Slide = slides[slideIndex]
+  const progress = ((slideIndex + 1) / slides.length) * 100
 
   return (
     <div
@@ -185,30 +211,34 @@ export default function PilotoPresent() {
           transformOrigin: 'center',
         }}
       >
-        <div
-          key={fadeKey}
-          className="h-full w-full animate-[pilotoFade_150ms_ease-out]"
-          style={{ animation: 'pilotoFade 150ms ease-out' }}
-        >
-          <Slide
-            input={input}
-            content={content}
-            accent={accent}
-            index={slideIndex}
-            total={SLIDES.length}
-          />
-        </div>
+        {Slide ? (
+          <div
+            key={fadeKey}
+            className="h-full w-full animate-[pilotoFade_150ms_ease-out]"
+            style={{ animation: 'pilotoFade 150ms ease-out' }}
+          >
+            <Slide
+              input={input}
+              content={content}
+              accent={accent}
+              index={slideIndex}
+              total={slides.length}
+            />
+          </div>
+        ) : null}
 
         <button
           type="button"
           aria-label="Slide anterior"
-          className="absolute inset-y-0 left-0 z-20 w-[30%] cursor-w-resize bg-transparent"
+          className="absolute inset-y-0 left-0 z-20 w-[30%] bg-transparent"
+          style={{ cursor: CURSOR_PREV }}
           onClick={() => goTo(slideIndex - 1)}
         />
         <button
           type="button"
           aria-label="Próximo slide"
-          className="absolute inset-y-0 right-0 z-20 w-[30%] cursor-e-resize bg-transparent"
+          className="absolute inset-y-0 right-0 z-20 w-[30%] bg-transparent"
+          style={{ cursor: CURSOR_NEXT }}
           onClick={() => goTo(slideIndex + 1)}
         />
       </div>

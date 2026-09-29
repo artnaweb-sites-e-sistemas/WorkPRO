@@ -460,6 +460,7 @@ export default function NewProposal() {
             doc.input.accentColor || savedDefaults.accentColor,
           ),
           tagline: savedDefaults.tagline,
+          pilotoShowContinuation: savedDefaults.pilotoShowContinuation === true,
         }
 
         setDefaults(mergedDefaults)

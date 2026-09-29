@@ -199,6 +199,11 @@ export interface ProposalDefaults {
    * Nome do cliente/projeto vive em ProposalFormInput.tagline por proposta.
    */
   tagline: string
+  /**
+   * Piloto 45: inclui o slide/página "Se fizer sentido continuar"
+   * na apresentação e no PDF para WhatsApp.
+   */
+  pilotoShowContinuation: boolean
 }
 
 export interface ProposalFormInput {

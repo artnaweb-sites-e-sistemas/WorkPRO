@@ -44,8 +44,8 @@ function ContinuationCard({ plan, accent }: { plan: ContinuationPlan; accent: st
 }
 
 /**
- * Slide de apoio: fica depois do fechamento e só é mostrado se o cliente perguntar
- * "e depois dos 45 dias?". No fluxo normal a reunião termina no slide anterior.
+ * Slide de continuidade: fica imediatamente antes do fechamento (próximos passos).
+ * Pode ser omitido pelo toggle "Exibir planos recorrentes".
  */
 export function SlideContinuidade({ input, content, accent, index, total }: SlideProps) {
   void content
