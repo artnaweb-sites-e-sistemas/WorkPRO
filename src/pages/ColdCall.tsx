@@ -566,18 +566,30 @@ export default function ColdCall() {
   function receiveLead(lead: ExtensionLead) {
     const companyKey = companyKeyOf(lead.empresa)
     const phoneKey = phoneKeyOf(lead.telefone)
-    const match = calls.find(
-      (item) =>
-        (phoneKey && phoneKeyOf(item.notes.telefone ?? '') === phoneKey) ||
-        (companyKey && companyKeyOf(item.notes.empresa ?? '') === companyKey),
-    )
+    const match =
+      (lead.placeId && calls.find((item) => item.notes.googlePlace === lead.placeId)) ||
+      calls.find(
+        (item) =>
+          (phoneKey && phoneKeyOf(item.notes.telefone ?? '') === phoneKey) ||
+          (companyKey && companyKeyOf(item.notes.empresa ?? '') === companyKey),
+      )
     if (match) {
-      openCall(match)
+      if (!lead.placeId || match.notes.googlePlace === lead.placeId) {
+        openCall(match)
+        return
+      }
+      // Ligação antiga, sem o lugar do Google: guarda agora, para o card da lista ser reconhecido.
+      nextCall()
+      const { id, ...data } = match
+      setCallId(id)
+      setCall({ ...data, notes: { ...data.notes, googlePlace: lead.placeId } })
+      setMode('call')
       return
     }
     nextCall()
     setCall((current) => {
       const notes: Record<string, string> = { ...current.notes, empresa: lead.empresa, telefone: lead.telefone }
+      if (lead.placeId) notes.googlePlace = lead.placeId
       if (lead.cidade) notes.cidade = lead.cidade
       if (!(notes.nicho ?? '').trim() && lead.categoria) notes.nicho = lead.categoria
       return { ...current, notes }

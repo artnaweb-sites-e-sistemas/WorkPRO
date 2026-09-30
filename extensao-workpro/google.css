@@ -73,20 +73,39 @@
   white-space: nowrap;
 }
 
-/* Listas: faixa na cor do status à esquerda do card, e o status ao lado do nome. */
+/* Listas: faixa na cor do status à esquerda do card e o status completo embaixo do nome. */
 .wpcc-marked {
-  box-shadow: inset 4px 0 0 var(--wpcc) !important;
+  position: relative;
 }
 
-.wpcc-tag {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 6px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--wpcc) 16%, transparent);
-  color: var(--wpcc);
-  font: 600 11.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  white-space: nowrap;
-  vertical-align: middle;
+.wpcc-marked::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--wpcc);
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* A busca põe overflow:hidden e nowrap nas linhas do card: aqui a etiqueta respira. */
+.wpcc-card-status {
+  display: block !important;
+  margin: 6px 0 6px !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  line-height: 1 !important;
+}
+
+/* Na busca o card não tem margem interna: a faixa fica no respiro à esquerda. */
+.wpcc-marked--outside::before {
+  left: -14px;
+  border-radius: 2px;
+}
+
+.wpcc-chip--small {
+  padding: 3px 9px;
+  font: 600 12.5px/1.3 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }

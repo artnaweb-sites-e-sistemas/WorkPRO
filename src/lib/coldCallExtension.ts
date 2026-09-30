@@ -17,6 +17,8 @@ export interface ExtensionLead {
   cidade: string
   /** categoria do Google (ex.: "Estúdio de pilates"): vira o nicho se ele estiver vazio */
   categoria: string
+  /** identificador do lugar no Google Maps: reconhece o card da lista, que quase nunca mostra telefone */
+  placeId: string
 }
 
 function post(type: string, payload: Record<string, unknown> = {}) {
@@ -36,6 +38,7 @@ export function syncColdCallsToExtension(calls: ColdCall[]) {
       name: (item.notes.empresa ?? '').trim(),
       companyKey: companyKeyOf(item.notes.empresa ?? ''),
       phoneKey: phoneKeyOf(item.notes.telefone ?? ''),
+      placeId: (item.notes.googlePlace ?? '').trim(),
       outcome: item.outcome,
       attempts: item.attempts,
       lastMs: item.startedAtMs,
@@ -62,5 +65,6 @@ export function readExtensionLead(event: MessageEvent): ExtensionLead | null {
     telefone: text(lead.telefone, 40),
     cidade: text(lead.cidade, 80),
     categoria: text(lead.categoria, 80),
+    placeId: text(lead.placeId, 80).toLowerCase(),
   }
 }

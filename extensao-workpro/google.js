@@ -36,7 +36,7 @@
 
   new MutationObserver((mutations) => {
     // Ignora o que a própria extensão desenhou, para não entrar em laço.
-    const external = mutations.some((mutation) => !mutation.target.closest?.(".wpcc-bar, .wpcc-tag"));
+    const external = mutations.some((mutation) => !mutation.target.closest?.(".wpcc-bar, .wpcc-card-status"));
     if (external) schedule();
   }).observe(document.body, { childList: true, subtree: true });
 
@@ -46,7 +46,8 @@
         renderMapsPlace();
         renderMapsList();
       } else {
-        renderSearchPanel();
+        const inLocalPanel = renderLocalPanel();
+        if (!inLocalPanel) renderSearchPanel();
         renderSearchList();
       }
     } catch (error) {
@@ -95,7 +96,7 @@
       else place.after.insertAdjacentElement("afterend", bar);
     }
 
-    const match = wpccFindCall(index, lead.empresa, lead.telefone);
+    const match = wpccFindCall(index, lead.empresa, lead.telefone, lead.placeId);
     const signature = JSON.stringify([lead, match && [match.id, match.outcome, match.attempts, match.lastMs]]);
     if (bar.dataset.sig === signature) return;
     bar.dataset.sig = signature;
@@ -150,14 +151,17 @@
   // Marca nas listas
   // ---------------------------------------------------------------------------
 
-  function markItem(card, nameEl, match) {
-    if (!card || !nameEl) return;
+  /**
+   * Card da lista: faixa na cor do status e, logo abaixo do nome, o status completo.
+   * `outside`: a faixa fica fora do card (na busca o card não tem margem interna à esquerda).
+   */
+  function markItem(card, anchor, match, outside = false) {
+    if (!card || !anchor) return;
     const signature = match ? JSON.stringify([match.id, match.outcome, match.attempts, match.lastMs]) : "";
-    if ((card.dataset.wpccSig || "") === signature) return;
+    if ((card.dataset.wpccSig || "") === signature && (!match || card.querySelector(".wpcc-card-status"))) return;
     card.dataset.wpccSig = signature;
 
-    const old = nameEl.parentElement && nameEl.parentElement.querySelector(":scope > .wpcc-tag");
-    if (old) old.remove();
+    for (const old of card.querySelectorAll(".wpcc-card-status")) old.remove();
 
     if (!match) {
       card.classList.remove("wpcc-marked");
@@ -166,14 +170,20 @@
     }
     const status = wpccStatusOf(match);
     card.classList.add("wpcc-marked");
+    card.classList.toggle("wpcc-marked--outside", outside);
     card.style.setProperty("--wpcc", status.color);
 
-    const tag = document.createElement("span");
-    tag.className = "wpcc-tag";
-    tag.style.setProperty("--wpcc", status.color);
-    tag.textContent = status.label;
-    tag.title = wpccStatusText(match);
-    nameEl.insertAdjacentElement("afterend", tag);
+    const row = document.createElement("div");
+    row.className = "wpcc-card-status";
+    const chip = document.createElement("span");
+    chip.className = "wpcc-chip wpcc-chip--small";
+    chip.style.setProperty("--wpcc", status.color);
+    const dot = document.createElement("i");
+    dot.setAttribute("aria-hidden", "true");
+    chip.append(dot, wpccStatusText(match));
+    if (match.responsavel) chip.title = `Falou com ${match.responsavel}`;
+    row.append(chip);
+    anchor.insertAdjacentElement("afterend", row);
   }
 
   // ---------------------------------------------------------------------------
@@ -195,7 +205,8 @@
       empresa: clean(title.textContent),
       telefone: phone,
       cidade: cityFromAddress(address ? address.getAttribute("aria-label") : ""),
-      categoria: clean(category ? category.textContent : "")
+      categoria: clean(category ? category.textContent : ""),
+      placeId: wpccPlaceId(location.href)
     });
   }
 
@@ -205,17 +216,126 @@
       const nameEl = card.querySelector(".qBF1Pd");
       const name = (link && link.getAttribute("aria-label")) || (nameEl && nameEl.textContent);
       const phoneEl = card.querySelector(".UsdlK");
-      markItem(card, nameEl, wpccFindCall(index, name, phoneEl ? phoneEl.textContent : ""));
+      // .NrDZNb é a linha do nome (flex): o status entra embaixo dela, não espremido ao lado.
+      const anchor = card.querySelector(".NrDZNb") || nameEl;
+      const placeId = wpccPlaceId(link ? link.href : "");
+      markItem(card, anchor, wpccFindCall(index, name, phoneEl ? phoneEl.textContent : "", placeId));
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Busca do Google (aba Locais e painel lateral da empresa)
+  // Busca do Google: aba Locais (lista + painel flutuante) e painel lateral comum
   // ---------------------------------------------------------------------------
 
+  /** Última empresa clicada na lista de Locais: o painel que abre é dela. */
+  let selectedLead = null;
+
+  document.addEventListener(
+    "click",
+    (event) => {
+      const card = event.target.closest && event.target.closest(".w7Dbne");
+      if (!card) return;
+      const parsed = parseLocalCard(card);
+      if (parsed) {
+        selectedLead = parsed.lead;
+        schedule();
+      }
+    },
+    true
+  );
+
+  /**
+   * Card da aba Locais (.w7Dbne). Linhas do card:
+   * nome · "5,0 (16) · Estúdio de pilates" · "Florianópolis - SC · (48) 3024-1771" · horário.
+   * O link "Rotas" traz o identificador do lugar (!1s0x…:0x…).
+   */
+  function parseLocalCard(card) {
+    const heading = card.querySelector(".dbg0pd");
+    if (!heading) return null;
+    const nameEl = heading.querySelector(".OSrXXb") || heading;
+    const details = card.querySelector(".rllt__details");
+    const lines = details ? [...details.children].map((el) => clean(el.textContent)) : [];
+    let telefone = "";
+    let cidade = "";
+    for (const line of lines.slice(1)) {
+      if (!telefone) telefone = phoneFromText(line);
+      if (!cidade) {
+        const match = line.match(/(?:^|·)\s*([^·]+?)\s+-\s+[A-Z]{2}\b/);
+        if (match) cidade = clean(match[1]);
+      }
+    }
+    const categoria = lines[1] ? clean(lines[1].split("·").pop()) : "";
+    const route = card.querySelector('a[href*="!1s0x"]');
+    return {
+      heading,
+      lead: {
+        empresa: clean(nameEl.textContent),
+        telefone,
+        cidade,
+        categoria: /\d/.test(categoria) ? "" : categoria,
+        placeId: wpccPlaceId(route ? route.getAttribute("href") : "")
+      }
+    };
+  }
+
+  function renderSearchList() {
+    for (const card of document.querySelectorAll(".w7Dbne")) {
+      const parsed = parseLocalCard(card);
+      if (!parsed) continue;
+      const { lead, heading } = parsed;
+      markItem(card, heading, wpccFindCall(index, lead.empresa, lead.telefone, lead.placeId), true);
+    }
+  }
+
+  /** Sobe enquanto o pai for uma linha flex (título + botões): a barra entra embaixo da linha toda. */
+  function blockOf(element) {
+    let node = element;
+    while (node.parentElement) {
+      const style = getComputedStyle(node.parentElement);
+      if (!style.display.includes("flex") || !style.flexDirection.startsWith("row")) break;
+      node = node.parentElement;
+    }
+    return node;
+  }
+
+  /** Painel flutuante que abre ao clicar num card da aba Locais. */
+  function renderLocalPanel() {
+    const panel = [...document.querySelectorAll(".R4aD0e")].find((el) => getComputedStyle(el).display !== "none");
+    if (!panel) return false;
+    const content = panel.querySelector("async-local-kp") || panel;
+    const heading = [
+      ...content.querySelectorAll('[data-attrid="title"], h2, [role="heading"]')
+    ].find((el) => clean(el.textContent).length > 1 && !el.closest(".wpcc-bar"));
+    if (!heading) return true;
+
+    const title = clean(heading.textContent);
+    let lead = null;
+    if (selectedLead) {
+      const a = wpccCompanyKey(selectedLead.empresa);
+      const b = wpccCompanyKey(title);
+      if (a && b && (a === b || a.startsWith(b) || b.startsWith(a))) lead = selectedLead;
+    }
+    if (!lead) {
+      const text = content.innerText || "";
+      const tel = content.querySelector('a[href^="tel:"]');
+      const address = text.split("\n").find((line) => /,\s*[^,]+?\s+-\s+[A-Z]{2}\b/.test(line)) || "";
+      const route = content.querySelector('a[href*="!1s0x"]');
+      lead = {
+        empresa: title,
+        telefone: tel ? phoneFromText(tel.getAttribute("href")) || phoneFromText(tel.textContent) : phoneFromText(text),
+        cidade: cityFromAddress(address),
+        categoria: "",
+        placeId: wpccPlaceId(route ? route.getAttribute("href") : "")
+      };
+    }
+    mountBar({ after: blockOf(heading) }, lead);
+    return true;
+  }
+
+  /** Painel lateral comum da busca (quando se pesquisa uma empresa pelo nome). */
   function renderSearchPanel() {
     const title = document.querySelector('[data-attrid="title"]');
-    if (!title) return;
+    if (!title || title.closest(".R4aD0e")) return;
     const panel =
       title.closest('#rhs, [role="complementary"], .kp-wholepage, [data-hveid][jscontroller]') || document.body;
     const phoneEl = panel.querySelector(
@@ -225,25 +345,13 @@
       '[data-local-attribute="d3adr"], [data-attrid="kc:/location/location:address"], [data-attrid*="address"]'
     );
     const subtitle = panel.querySelector('[data-attrid="subtitle"]');
-    mountBar({ after: title }, {
+    const route = panel.querySelector('a[href*="!1s0x"]');
+    mountBar({ after: blockOf(title) }, {
       empresa: clean(title.textContent),
       telefone: phoneEl ? phoneFromText(phoneEl.getAttribute("aria-label") || phoneEl.textContent) : "",
       cidade: cityFromAddress(addressEl ? addressEl.textContent : ""),
-      categoria: clean(subtitle ? subtitle.textContent : "").split("·").pop().trim()
+      categoria: clean(subtitle ? subtitle.textContent : "").split("·").pop().trim(),
+      placeId: wpccPlaceId(route ? route.getAttribute("href") : "")
     });
-  }
-
-  function renderSearchList() {
-    const seen = new Set();
-    const headings = document.querySelectorAll(
-      '.dbg0pd, .rllt__details [role="heading"], [data-cid] [role="heading"], .VkpGBb [role="heading"]'
-    );
-    for (const heading of headings) {
-      if (seen.has(heading) || heading.closest(".wpcc-bar")) continue;
-      seen.add(heading);
-      const card = heading.closest("[data-cid], .VkpGBb, .rllt__details") || heading.parentElement;
-      const cardText = card && card.innerText && card.innerText.length < 800 ? card.innerText : "";
-      markItem(card, heading, wpccFindCall(index, heading.textContent, phoneFromText(cardText)));
-    }
   }
 })();

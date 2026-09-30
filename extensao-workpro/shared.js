@@ -59,9 +59,22 @@ function wpccStatusText(item) {
   return parts.join(" · ");
 }
 
-/** Acha a ligação pelo telefone (mais seguro) ou pelo nome exato normalizado. */
-function wpccFindCall(index, name, phone) {
+/** Identificador do lugar no Google Maps (vem no link do card e na URL do painel). */
+function wpccPlaceId(url) {
+  const match = String(url || "").match(/!1s(0x[0-9a-f]+:0x[0-9a-f]+)/i);
+  return match ? match[1].toLowerCase() : "";
+}
+
+/**
+ * Acha a ligação: pelo lugar do Google (o mais preciso), pelo telefone ou pelo nome normalizado.
+ * O card da lista quase nunca mostra telefone; por isso o lugar vem primeiro.
+ */
+function wpccFindCall(index, name, phone, placeId) {
   const items = Object.values(index || {});
+  if (placeId) {
+    const byPlace = items.find((item) => item.placeId === placeId);
+    if (byPlace) return byPlace;
+  }
   const phoneKey = wpccPhoneKey(phone);
   if (phoneKey) {
     const byPhone = items.find((item) => item.phoneKey === phoneKey);
