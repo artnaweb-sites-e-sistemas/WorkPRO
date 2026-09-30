@@ -4,7 +4,7 @@ import {
   PILOT_GOAL,
   REPORT_METRICS,
 } from '../../lib/pilotoContent'
-import { CONTINUATION_FROM_CENTS } from '../../lib/pilotoPricing'
+import { continuationFromCents } from '../../lib/pilotoPricing'
 import { BODY, CheckIcon, FAINT, INK, LightSlide, MUTED, RULE, SOFT, brl } from './deck'
 import type { SlideProps } from './slideTypes'
 
@@ -87,7 +87,7 @@ export function SlideDia45({ input, content, accent, index, total }: SlideProps)
               ))}
             </ul>
             <p className="mt-3 border-t pt-3 text-[13.5px] font-semibold" style={{ borderColor: RULE, color: MUTED }}>
-              Planos a partir de {brl(CONTINUATION_FROM_CENTS)}/mês
+              Planos a partir de {brl(continuationFromCents(input.pricing))}/mês
             </p>
           </div>
         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { pdf } from '@react-pdf/renderer'
 import { generatePilotoContent, regeneratePilotoContent } from '../ai/generatePiloto'
 import { PilotoBrandFields } from '../components/PilotoBrandFields'
@@ -14,7 +14,14 @@ import { ProposalStatusSelector } from '../components/ProposalStatusSelector'
 import { Button, DownloadIcon, Input, Spinner, Switch, Textarea } from '../components/ui'
 import { formatCurrencyBRL, maskCurrencyBRLInput, parseCurrencyBRL } from '../lib/currencyBRL'
 import { sanitizeFilename } from '../lib/filename'
-import { AGENCY_DEAL_CENTS, DEFAULT_INSTALLMENT_FEE_RATE, calcInstallments } from '../lib/pilotoPricing'
+import {
+  DEFAULT_INSTALLMENT_FEE_RATE,
+  calcInstallments,
+  dealSavingsCents,
+  getContinuationPlans,
+  getPilotoPlans,
+} from '../lib/pilotoPricing'
+import type { ContinuationPlanId, PilotoPricing } from '../lib/pilotoPricing'
 import { cn } from '../lib/cn'
 import { PilotoPdfDocument, PILOTO_PDF_LAYOUT_REVISION } from '../pdf/PilotoPdfDocument'
 import { getProposalDefaults, saveProposalDefaults } from '../services/proposalDefaults'
@@ -182,9 +189,53 @@ function PanelSection({
   )
 }
 
+/** Valor em reais digitado estilo banco: os dois últimos dígitos são centavos. */
+function MoneyRow({
+  label,
+  cents,
+  onChange,
+  error,
+}: {
+  label: string
+  cents: number
+  onChange: (cents: number) => void
+  error?: string
+}) {
+  return (
+    <div className="py-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm normal-case text-foreground">{label}</span>
+        <input
+          aria-label={label}
+          aria-invalid={error ? true : undefined}
+          inputMode="numeric"
+          value={cents > 0 ? formatCurrencyBRL(cents) : ''}
+          placeholder="R$ 0,00"
+          onChange={(event) => {
+            const digits = event.target.value.replace(/\D/g, '')
+            onChange(digits ? Number.parseInt(digits, 10) : 0)
+          }}
+          className={cn(
+            'h-9 w-36 shrink-0 bg-surface-2 px-3 text-right text-sm tabular-nums text-foreground outline-none transition-colors focus-visible:ring-1 focus-visible:ring-accent',
+            error && 'ring-1 ring-status-error',
+          )}
+        />
+      </div>
+      {error ? <p className="mt-1.5 text-xs normal-case text-status-error">{error}</p> : null}
+    </div>
+  )
+}
+
+const CONTINUATION_LABELS: Record<ContinuationPlanId, string> = {
+  site: 'Site',
+  'site-whatsapp': 'Site + WhatsApp',
+  completo: 'Completo',
+}
+
 export default function NewPiloto() {
   const { id: routeId } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [pilotoId, setPilotoId] = useState<string | null>(routeId ?? null)
   const [status, setStatus] = useState<ProposalStatus>('ativo')
@@ -209,6 +260,7 @@ export default function NewPiloto() {
 
   const [brandOpen, setBrandOpen] = useState(false)
   const [commercialOpen, setCommercialOpen] = useState(false)
+  const [pricingOpen, setPricingOpen] = useState(false)
   const [openSection, setOpenSection] = useState<PilotoTextSection | null>(null)
   const [previewTab, setPreviewTab] = useState<PreviewTab>('deck')
   const [slideIndex, setSlideIndex] = useState(0)
@@ -223,10 +275,15 @@ export default function NewPiloto() {
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const accent = normalizeAccentColor(input.accentColor)
+  const { pricing } = input
   const installments = useMemo(
-    () => calcInstallments(AGENCY_DEAL_CENTS, input.installmentFeeRate),
-    [input.installmentFeeRate],
+    () => calcInstallments(pricing.agencyDealCents, input.installmentFeeRate),
+    [pricing.agencyDealCents, input.installmentFeeRate],
   )
+  const plans = useMemo(() => getPilotoPlans(pricing), [pricing])
+  const savingsCents = dealSavingsCents(pricing)
+  const completoPlan = plans.find((plan) => plan.id === 'completo') ?? plans[0]
+  const singleChannelPlan = plans.find((plan) => plan.id !== 'completo') ?? plans[0]
   const contentEmpty = isContentEmpty(content)
   const showContinuation = brandDefaults?.pilotoShowContinuation === true
   const missing = [
@@ -334,8 +391,13 @@ export default function NewPiloto() {
           return
         }
         setBrandDefaults(defaults)
+        // Vindo da ligação fria: empresa, nicho e cidade já preenchidos.
+        const prefill = (location.state as { prefill?: Partial<PilotoInput> } | null)?.prefill ?? {}
         setInput((current) =>
-          applyBrandDefaults({ ...current, accentColor: normalizeAccentColor(defaults.accentColor) }, defaults),
+          applyBrandDefaults(
+            normalizePilotoInput({ ...current, ...prefill, accentColor: normalizeAccentColor(defaults.accentColor) }),
+            defaults,
+          ),
         )
         setBrandOpen(!defaults.logoDataUrl)
       } catch (error) {
@@ -390,6 +452,10 @@ export default function NewPiloto() {
 
   function patchInput(partial: Partial<PilotoInput>) {
     setInput((current) => normalizePilotoInput({ ...current, ...partial }))
+  }
+
+  function patchPricing(partial: Partial<PilotoPricing>) {
+    setInput((current) => normalizePilotoInput({ ...current, pricing: { ...current.pricing, ...partial } }))
   }
 
   /** Marca muda no piloto e nos dados fixos (os mesmos da proposta). */
@@ -709,6 +775,62 @@ export default function NewPiloto() {
             </PanelSection>
 
             <PanelSection
+              title="Orçamento"
+              collapsible
+              open={pricingOpen}
+              onToggle={() => setPricingOpen((value) => !value)}
+              summary={
+                <span className="tabular-nums">
+                  Completo {formatCurrencyBRL(completoPlan.totalCents)}
+                  {savingsCents > 0 ? ` · desconto ${formatCurrencyBRL(savingsCents)}` : ''}
+                </span>
+              }
+            >
+              <div className="divide-y divide-border">
+                <MoneyRow
+                  label="Agência sem desconto"
+                  cents={pricing.agencyListCents}
+                  onChange={(cents) => patchPricing({ agencyListCents: cents })}
+                  error={
+                    pricing.agencyListCents > 0 && savingsCents === 0
+                      ? 'Precisa ser maior que o valor na reunião. Sem diferença, o roteiro não fala de desconto.'
+                      : undefined
+                  }
+                />
+                <MoneyRow
+                  label="Agência fechando na reunião"
+                  cents={pricing.agencyDealCents}
+                  onChange={(cents) => patchPricing({ agencyDealCents: cents })}
+                />
+                <MoneyRow
+                  label="Verba de anúncio por canal"
+                  cents={pricing.adBudgetPerChannelCents}
+                  onChange={(cents) => patchPricing({ adBudgetPerChannelCents: cents })}
+                />
+              </div>
+              <p className="mt-2 text-xs normal-case text-muted-foreground tabular-nums">
+                Meta ou Google {formatCurrencyBRL(singleChannelPlan.totalCents)} · Completo{' '}
+                {formatCurrencyBRL(completoPlan.totalCents)}. Vale nos slides, no PDF e no roteiro.
+              </p>
+
+              <p className="mt-5 text-sm font-semibold normal-case text-foreground">Planos recorrentes, por mês</p>
+              <div className="mt-1 divide-y divide-border">
+                {getContinuationPlans(pricing).map((plan) => (
+                  <MoneyRow
+                    key={plan.id}
+                    label={CONTINUATION_LABELS[plan.id]}
+                    cents={plan.monthlyCents}
+                    onChange={(cents) =>
+                      patchPricing({
+                        continuationMonthlyCents: { ...pricing.continuationMonthlyCents, [plan.id]: cents },
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            </PanelSection>
+
+            <PanelSection
               title="Comercial"
               collapsible
               open={commercialOpen}
@@ -744,7 +866,7 @@ export default function NewPiloto() {
                 />
               </div>
               <p className="mt-3 text-xs normal-case text-muted-foreground">
-                Taxa da InfinitePay repassada ao cliente. Agência {formatCurrencyBRL(AGENCY_DEAL_CENTS)} à vista
+                Taxa da InfinitePay repassada ao cliente. Agência {formatCurrencyBRL(pricing.agencyDealCents)} à vista
                 ou 10x de {formatCurrencyBRL(installments.installmentCents)} (total{' '}
                 {formatCurrencyBRL(installments.totalCents)}).
               </p>

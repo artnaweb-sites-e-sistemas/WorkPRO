@@ -82,6 +82,12 @@ export interface ScriptPrices {
   /** "R$ 353,19" */
   installment: string
   installments: number
+  /** diferença entre o preço "de" e o da reunião ("R$ 2.000"); vazio = sem desconto */
+  savings: string
+  /** a diferença cobre a verba de anúncios do Completo (os dois canais) */
+  savingsCoversAds: boolean
+  /** data aproximada do dia 16 fechando hoje ("16/10") */
+  adsStart: string
 }
 
 function slide(
@@ -101,6 +107,7 @@ function slide(
 }
 
 export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
+  const hasDeal = Boolean(prices.savings)
   return [
     {
       part: 0,
@@ -109,6 +116,11 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       say: [
         'Oi, {nome}! Aqui é o Bira. Tudo bem?',
         'Você me ouve bem?',
+        ...(hasDeal
+          ? [
+              'Hoje eu quero entender o seu momento e, se fizer sentido, te mostrar um plano. No final tem uma condição que só vale pra quem decide aqui na reunião. Combinado?#Espere o "combinado". No preço, ele já sabe a regra.',
+            ]
+          : []),
         'Pelo que a gente conversou, você quer trazer mais clientes pela internet, com mais constância. É isso mesmo?',
         '@obj E qual é a intenção por trás? Encher horário vago, parar de depender de indicação ou crescer?',
         'Me conta um pouco mais: como seria isso na prática pra você?#Pergunta pra ganhar tempo enquanto você anota.',
@@ -363,11 +375,19 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       say: [
         'Se estiver ok, o próximo passo é falar do investimento.#Espere o sim.',
         'Pra você chegar em {numMeta} por mês, com {virada}:',
-        `A agência é ${prices.list}. Fechando hoje, fica ${prices.deal}.`,
+        ...(hasDeal
+          ? [
+              `A agência é ${prices.list}. Fechando hoje, fica ${prices.deal}.`,
+              'E por que só hoje: decidindo na reunião, eu não tenho custo de proposta, retorno e nova reunião. Essa economia vai pra você.#Tom de regra, não de pressão.',
+              prices.savingsCoversAds
+                ? `Essa diferença de ${prices.savings} cobre toda a verba de anúncios dos 30 dias. É como se o tráfego saísse por conta da condição de hoje.`
+                : `Essa diferença de ${prices.savings} fica no seu caixa.`,
+            ]
+          : [`A agência é ${prices.deal}.`]),
         'Eu recomendo o Completo: é o único que coloca Meta e Google lado a lado.',
         `A verba, ${prices.adBudget} por canal, você paga direto pras plataformas, no seu cartão, ao longo dos 30 dias.`,
         `A maioria paga à vista no Pix, mas dá pra fazer em ${prices.installments}x de ${prices.installment}.`,
-        'Como você gostaria de seguir?',
+        `Fechando hoje, seus anúncios entram no ar por volta de ${prices.adsStart}. Como você gostaria de seguir?`,
       ],
       silence: true,
       adapt: [
@@ -401,8 +421,13 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
   ]
 }
 
-export const SCRIPT_OBJECTIONS: [string, string][] = [
-  ['"Vou pensar."', 'Claro. Pensar em qual parte: o plano ou o investimento?'],
+export const buildScriptObjections = (prices: ScriptPrices): [string, string][] => [
+  [
+    '"Vou pensar."',
+    prices.savings
+      ? `Claro. Pensar em qual parte: o plano ou o investimento? … Só pra ser transparente: a condição de ${prices.deal} vale até o fim da nossa conversa. Depois volta pros ${prices.list}. Não é pressão, é a regra que eu uso com todo mundo.#Resolva a dúvida antes de falar do prazo.`
+      : 'Claro. Pensar em qual parte: o plano ou o investimento?',
+  ],
   ['"Tá caro."', 'Caro comparado com o quê? Quanto vale um cliente novo pra você? E quantos somem no WhatsApp?'],
   ['"Falar com sócio / esposa."', 'Faz sentido. Se dependesse só de você, fechava hoje? Então marcamos 15 minutos com os dois essa semana.'],
   ['"E se não der resultado?"', 'O que seria resultado pra você em 45 dias?#Não prometa número. No dia 45 ele sabe o custo de cada canal.'],

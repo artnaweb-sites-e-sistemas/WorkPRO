@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import type { PilotoDoc } from '../types/piloto'
 import { formatCurrencyBRL } from '../lib/currencyBRL'
 import { formatRelativeTime } from '../lib/formatRelativeTime'
-import { PILOTO_PLANS } from '../lib/pilotoPricing'
+import { getPilotoPlans } from '../lib/pilotoPricing'
 import { Badge } from './ui/Badge'
 import { cn } from '../lib/cn'
 
@@ -23,7 +23,7 @@ export function PilotoCard({ piloto, className }: PilotoCardProps) {
   const niche = piloto.input.leadNiche.trim()
   const city = piloto.input.leadCity.trim()
   const secondary = [niche, city].filter(Boolean).join(' · ')
-  const completo = PILOTO_PLANS.find((plan) => plan.id === 'completo')
+  const completo = getPilotoPlans(piloto.input.pricing).find((plan) => plan.id === 'completo')
   const amountLabel = formatCurrencyBRL(completo?.totalCents ?? 0)
   const isClosed = piloto.status === 'fechado'
   const isActive = piloto.status === 'ativo'

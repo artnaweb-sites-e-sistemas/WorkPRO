@@ -476,6 +476,13 @@ export default function Dashboard() {
               {section.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => navigate('/ligacao')}
+            className="min-h-touch border-2 border-border bg-transparent px-4 py-2 text-xs font-bold uppercase tracking-tight text-muted-foreground transition-colors duration-150 hover:text-accent"
+          >
+            Cold call
+          </button>
         </div>
 
         <div className="relative flex flex-wrap items-end justify-between gap-6">

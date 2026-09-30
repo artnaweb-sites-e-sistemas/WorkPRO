@@ -10,6 +10,7 @@ import NewProposal from './pages/NewProposal'
 import NewPiloto from './pages/NewPiloto'
 import PilotoPresent from './pages/PilotoPresent'
 import PilotoRoteiro from './pages/PilotoRoteiro'
+import ColdCall from './pages/ColdCall'
 
 export default function App() {
   return (
@@ -98,6 +99,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <PilotoRoteiro />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/ligacao"
+              element={
+                <ProtectedRoute>
+                  <ColdCall />
                 </ProtectedRoute>
               }
             />

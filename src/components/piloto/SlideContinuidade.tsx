@@ -1,5 +1,5 @@
 import { RECURRENCE_NOTE } from '../../lib/pilotoContent'
-import { CONTINUATION_PLANS } from '../../lib/pilotoPricing'
+import { getContinuationPlans } from '../../lib/pilotoPricing'
 import type { ContinuationPlan } from '../../lib/pilotoPricing'
 import { BODY, CheckIcon, INK, LightSlide, MUTED, RULE, brl } from './deck'
 import type { SlideProps } from './slideTypes'
@@ -61,7 +61,7 @@ export function SlideContinuidade({ input, content, accent, index, total }: Slid
     >
       <div className="flex h-full flex-col">
         <div className="grid min-h-0 flex-1 grid-cols-3 gap-6">
-          {CONTINUATION_PLANS.map((plan) => (
+          {getContinuationPlans(input.pricing).map((plan) => (
             <ContinuationCard key={plan.id} plan={plan} accent={accent} />
           ))}
         </div>

@@ -1,5 +1,7 @@
 import type { Timestamp } from 'firebase/firestore'
 import type { MarkAnchor, ProposalDefaults, ProposalStatus } from './proposalDoc'
+import { normalizePilotoPricing } from '../lib/pilotoPricing'
+import type { PilotoPricing } from '../lib/pilotoPricing'
 import {
   DEFAULT_ACCENT_COLOR,
   normalizeAccentColor,
@@ -37,6 +39,7 @@ export interface PilotoInput {
 
   installmentFeeRate: number
   validityDays: number
+  pricing: PilotoPricing
 }
 
 export interface PilotoAiContent {
@@ -255,6 +258,7 @@ export function normalizePilotoInput(raw: unknown): PilotoInput {
     contextNotes: asText(record.contextNotes),
     installmentFeeRate,
     validityDays,
+    pricing: normalizePilotoPricing(record.pricing),
   }
 }
 

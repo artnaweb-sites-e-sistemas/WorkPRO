@@ -1,23 +1,17 @@
 import { AD_BUDGET_NOTE } from '../../lib/pilotoContent'
-import {
-  AD_BUDGET_PER_CHANNEL_CENTS,
-  AGENCY_DEAL_CENTS,
-  AGENCY_LIST_CENTS,
-  PILOTO_PLANS,
-  calcInstallments,
-} from '../../lib/pilotoPricing'
-import type { PilotoPlan } from '../../lib/pilotoPricing'
+import { calcInstallments, getPilotoPlans } from '../../lib/pilotoPricing'
+import type { PilotoPlan, PilotoPricing } from '../../lib/pilotoPricing'
 import { BODY, FAINT, INK, LightSlide, MUTED, RULE, brl, onAccent } from './deck'
 import type { SlideProps } from './slideTypes'
 
-function PlanCard({ plan, accent }: { plan: PilotoPlan; accent: string }) {
+function PlanCard({ plan, pricing, accent }: { plan: PilotoPlan; pricing: PilotoPricing; accent: string }) {
   const featured = plan.highlighted
   const text = featured ? '#FFFFFF' : INK
   const soft = featured ? 'rgba(255,255,255,0.62)' : MUTED
   const rule = featured ? 'rgba(255,255,255,0.14)' : '#EDEDEF'
   const rows = [
-    { label: 'Agência', value: AGENCY_DEAL_CENTS },
-    ...plan.channels.map((channel) => ({ label: `Verba ${channel}`, value: AD_BUDGET_PER_CHANNEL_CENTS })),
+    { label: 'Agência', value: pricing.agencyDealCents },
+    ...plan.channels.map((channel) => ({ label: `Verba ${channel}`, value: pricing.adBudgetPerChannelCents })),
   ]
 
   return (
@@ -67,7 +61,8 @@ function PlanCard({ plan, accent }: { plan: PilotoPlan; accent: string }) {
 
 export function SlideInvestimento({ input, content, accent, index, total }: SlideProps) {
   void content
-  const installments = calcInstallments(AGENCY_DEAL_CENTS, input.installmentFeeRate)
+  const { pricing } = input
+  const installments = calcInstallments(pricing.agencyDealCents, input.installmentFeeRate)
 
   return (
     <LightSlide
@@ -80,8 +75,8 @@ export function SlideInvestimento({ input, content, accent, index, total }: Slid
     >
       <div className="flex h-full flex-col">
         <div className="grid min-h-0 flex-1 grid-cols-3 gap-6 pt-2">
-          {PILOTO_PLANS.map((plan) => (
-            <PlanCard key={plan.id} plan={plan} accent={accent} />
+          {getPilotoPlans(pricing).map((plan) => (
+            <PlanCard key={plan.id} plan={plan} pricing={pricing} accent={accent} />
           ))}
         </div>
 
@@ -89,9 +84,9 @@ export function SlideInvestimento({ input, content, accent, index, total }: Slid
           <p className="text-[17px] font-medium" style={{ color: INK }}>
             Agência de{' '}
             <span className="line-through tabular-nums" style={{ color: FAINT }}>
-              {brl(AGENCY_LIST_CENTS)}
+              {brl(pricing.agencyListCents)}
             </span>{' '}
-            por <span className="font-bold tabular-nums">{brl(AGENCY_DEAL_CENTS)}</span> fechando nesta
+            por <span className="font-bold tabular-nums">{brl(pricing.agencyDealCents)}</span> fechando nesta
             reunião · à vista no Pix ou 10x de{' '}
             <span className="font-bold tabular-nums">{brl(installments.installmentCents)}</span>
           </p>

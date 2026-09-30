@@ -2,22 +2,24 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Spinner } from '../components/ui'
+import { SCRIPT_THEME_CSS } from '../components/scriptTheme'
 import { brl } from '../components/piloto/deck'
 import {
-  AD_BUDGET_PER_CHANNEL_CENTS,
-  AGENCY_DEAL_CENTS,
-  AGENCY_LIST_CENTS,
+  DEFAULT_INSTALLMENT_FEE_RATE,
+  DEFAULT_PILOTO_PRICING,
   INSTALLMENT_COUNT,
   calcInstallments,
+  dealSavingsCents,
 } from '../lib/pilotoPricing'
+import type { PilotoPricing } from '../lib/pilotoPricing'
 import {
   SCRIPT_CAPTURES,
-  SCRIPT_OBJECTIONS,
   SCRIPT_PARTS,
   buildScriptCards,
+  buildScriptObjections,
   parseKeyQuestion,
 } from '../lib/pilotoScript'
-import type { ScriptAdapt, ScriptCard } from '../lib/pilotoScript'
+import type { ScriptAdapt, ScriptCard, ScriptPrices } from '../lib/pilotoScript'
 import { personalizeScriptLine } from '../ai/personalizeScriptLine'
 import { polishScriptNote } from '../ai/polishScriptNote'
 import { getPiloto, updatePilotoScript } from '../services/pilotos'
@@ -27,22 +29,6 @@ import { EMPTY_PILOTO_SCRIPT } from '../types/piloto'
 const SAVE_DELAY = 800
 /** Suba quando mudar a instrução da IA em personalizeScriptLine: força gerar as falas de novo. */
 const ADAPT_VERSION = 3
-
-/* Cores das anotações: cada resposta do lead tem uma, e reaparece nela nas fichas seguintes. */
-const STYLES = `
-.rt { --rt-paper:#18181B; --rt-rule:#27272A; --rt-muted:#A1A1AA; --rt-faint:#71717A; --rt-ink:#FAFAFA; --rt-silence:#FF8A7A;
-  --c1-bg:#1b2a52; --c1-fg:#b7cbff; --c2-bg:#2a2e36; --c2-fg:#d0d5de; --c3-bg:#4a1f1a; --c3-fg:#ffc2b8;
-  --c4-bg:#173a2c; --c4-fg:#a6e8c9; --c5-bg:#45300f; --c5-fg:#ffd199; --c6-bg:#2c2350; --c6-fg:#d2c4ff;
-  --c7-bg:#47192f; --c7-fg:#ffbddb; --c8-bg:#173640; --c8-fg:#a9e3f2; --c9-bg:#3e3510; --c9-fg:#ffe486;
-  --c10-bg:#2f3a12; --c10-fg:#d4f08a; }
-.rt .pill { border-radius:4px; padding:0 5px; font-weight:600; -webkit-box-decoration-break:clone; box-decoration-break:clone; }
-.rt .pill.empty { font-weight:400; font-style:italic; opacity:.8; }
-.rt .c1{background:var(--c1-bg);color:var(--c1-fg)} .rt .c2{background:var(--c2-bg);color:var(--c2-fg)}
-.rt .c3{background:var(--c3-bg);color:var(--c3-fg)} .rt .c4{background:var(--c4-bg);color:var(--c4-fg)}
-.rt .c5{background:var(--c5-bg);color:var(--c5-fg)} .rt .c6{background:var(--c6-bg);color:var(--c6-fg)}
-.rt .c7{background:var(--c7-bg);color:var(--c7-fg)} .rt .c8{background:var(--c8-bg);color:var(--c8-fg)}
-.rt .c9{background:var(--c9-bg);color:var(--c9-fg)} .rt .c10{background:var(--c10-bg);color:var(--c10-fg)}
-`
 
 type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error'
 
@@ -117,12 +103,14 @@ function Card({
   index,
   total,
   notes,
+  objections,
   renderLine,
 }: {
   card: ScriptCard
   index: number
   total: number
   notes: Record<string, string>
+  objections: [string, string][]
   renderLine: RenderLine
 }) {
   return (
@@ -229,7 +217,7 @@ function Card({
         <div className="overflow-x-auto">
           <table className="w-full text-[16px]">
             <tbody>
-              {SCRIPT_OBJECTIONS.map(([said, reply]) => (
+              {objections.map(([said, reply]) => (
                 <tr key={said} className="border-t" style={{ borderColor: 'var(--rt-rule)' }}>
                   <td className="w-[34%] py-3 pr-4 align-top font-semibold text-foreground">{said}</td>
                   <td className="py-3 align-top text-foreground">
@@ -285,6 +273,7 @@ export default function PilotoRoteiro() {
   const [notFound, setNotFound] = useState(false)
   const [leadName, setLeadName] = useState('')
   const [feeRate, setFeeRate] = useState<number | null>(null)
+  const [pricing, setPricing] = useState<PilotoPricing>(DEFAULT_PILOTO_PRICING)
   const [script, setScript] = useState<PilotoScript>(EMPTY_PILOTO_SCRIPT)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [confirmReset, setConfirmReset] = useState(false)
@@ -303,16 +292,26 @@ export default function PilotoRoteiro() {
   const latest = useRef(script)
   latest.current = script
 
-  const cards = useMemo(() => {
-    const installments = calcInstallments(AGENCY_DEAL_CENTS, feeRate ?? 0.1506)
-    return buildScriptCards({
-      list: brl(AGENCY_LIST_CENTS),
-      deal: brl(AGENCY_DEAL_CENTS),
-      adBudget: brl(AD_BUDGET_PER_CHANNEL_CENTS),
+  const prices = useMemo((): ScriptPrices => {
+    const installments = calcInstallments(pricing.agencyDealCents, feeRate ?? DEFAULT_INSTALLMENT_FEE_RATE)
+    const savingsCents = dealSavingsCents(pricing)
+    // Dia 1 começa depois do briefing (até 24 h): o dia 16 cai por volta de hoje + 16.
+    const adsStart = new Date()
+    adsStart.setDate(adsStart.getDate() + 16)
+    return {
+      list: brl(pricing.agencyListCents),
+      deal: brl(pricing.agencyDealCents),
+      adBudget: brl(pricing.adBudgetPerChannelCents),
       installment: brl(installments.installmentCents),
       installments: INSTALLMENT_COUNT,
-    })
-  }, [feeRate])
+      savings: savingsCents > 0 ? brl(savingsCents) : '',
+      savingsCoversAds: savingsCents > 0 && savingsCents >= pricing.adBudgetPerChannelCents * 2,
+      adsStart: adsStart.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+    }
+  }, [feeRate, pricing])
+
+  const cards = useMemo(() => buildScriptCards(prices), [prices])
+  const objections = useMemo(() => buildScriptObjections(prices), [prices])
 
   const index = Math.min(script.cardIndex, cards.length - 1)
   const card = cards[index]
@@ -334,6 +333,7 @@ export default function PilotoRoteiro() {
         }
         setLeadName(doc.input.leadCompanyName.trim())
         setFeeRate(doc.input.installmentFeeRate)
+        setPricing(doc.input.pricing)
         // A empresa já vem do piloto; o resto ele diz na reunião.
         const notesFromDoc = { ...doc.script.notes }
         if (!notesFromDoc.empresa && doc.input.leadCompanyName.trim()) {
@@ -648,7 +648,7 @@ export default function PilotoRoteiro() {
 
   return (
     <div className="rt min-h-screen bg-background pb-28">
-      <style>{STYLES}</style>
+      <style>{SCRIPT_THEME_CSS}</style>
 
       <header className="sticky top-0 z-10 border-b border-border bg-background">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-6 py-3">
@@ -733,7 +733,7 @@ export default function PilotoRoteiro() {
         </nav>
 
         <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
-          <Card card={card} index={index} total={cards.length} notes={notes} renderLine={renderLine} />
+          <Card card={card} index={index} total={cards.length} notes={notes} objections={objections} renderLine={renderLine} />
 
           <aside className="grid min-w-0 gap-5 lg:sticky lg:top-20">
             {card.capture?.length ? (

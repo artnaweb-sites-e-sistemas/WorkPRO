@@ -1,4 +1,4 @@
-import { TRAFFIC_ITEMS, TRAFFIC_LOOP } from '../../lib/pilotoContent'
+import { TRAFFIC_LOOP, trafficItems } from '../../lib/pilotoContent'
 import { BODY, INK, LightSlide, MUTED, SOFT } from './deck'
 import type { SlideProps } from './slideTypes'
 
@@ -100,7 +100,7 @@ export function SlideTrafego({ input, content, accent, index, total }: SlideProp
           <OptimizationLoop accent={accent} halo={SOFT} />
         </div>
         <div className="flex min-w-0 flex-col justify-center">
-          {TRAFFIC_ITEMS.map((item) => (
+          {trafficItems(input.pricing.adBudgetPerChannelCents).map((item) => (
             <div key={item.title} className="border-t py-[12px] first:border-t-0" style={{ borderColor: '#EDEDEF' }}>
               <p className="text-[18px] font-semibold">{item.title}</p>
               <p className="mt-0.5 text-[15px] font-medium leading-[1.45]" style={{ color: BODY }}>

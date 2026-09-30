@@ -1,6 +1,3 @@
-export const AGENCY_LIST_CENTS = 500000
-export const AGENCY_DEAL_CENTS = 300000
-export const AD_BUDGET_PER_CHANNEL_CENTS = 100000
 export const DEFAULT_INSTALLMENT_FEE_RATE = 0.1506
 export const INSTALLMENT_COUNT = 10
 
@@ -16,14 +13,14 @@ export interface PilotoPlan {
   pitch: string
 }
 
-/** Ordem de exibição: o recomendado fica no centro. */
-export const PILOTO_PLANS: PilotoPlan[] = [
+type PilotoPlanTemplate = Omit<PilotoPlan, 'adBudgetCents' | 'totalCents'>
+
+/** Ordem de exibição: o recomendado fica no centro. Valores vêm do orçamento do piloto. */
+const PILOTO_PLAN_TEMPLATES: PilotoPlanTemplate[] = [
   {
     id: 'meta',
     name: 'Piloto Meta',
     channels: ['Meta Ads'],
-    adBudgetCents: 100000,
-    totalCents: 400000,
     highlighted: false,
     pitch: 'Para testar vídeo e alcance no Instagram e no Facebook.',
   },
@@ -31,8 +28,6 @@ export const PILOTO_PLANS: PilotoPlan[] = [
     id: 'completo',
     name: 'Piloto Completo',
     channels: ['Meta Ads', 'Google Ads'],
-    adBudgetCents: 200000,
-    totalCents: 500000,
     highlighted: true,
     pitch: 'Os dois canais lado a lado. O único que mostra onde vale investir.',
   },
@@ -40,12 +35,68 @@ export const PILOTO_PLANS: PilotoPlan[] = [
     id: 'google',
     name: 'Piloto Google',
     channels: ['Google Ads'],
-    adBudgetCents: 100000,
-    totalCents: 400000,
     highlighted: false,
     pitch: 'Para capturar quem já está procurando o que você vende.',
   },
 ]
+
+export type ContinuationPlanId = 'site' | 'site-whatsapp' | 'completo'
+
+/** Orçamento de cada piloto: muda aqui, muda nos slides, no PDF e no roteiro. */
+export interface PilotoPricing {
+  /** agência sem desconto (o preço "de") */
+  agencyListCents: number
+  /** agência fechando na reunião */
+  agencyDealCents: number
+  adBudgetPerChannelCents: number
+  /** mensalidade de cada plano de continuidade */
+  continuationMonthlyCents: Record<ContinuationPlanId, number>
+}
+
+export const DEFAULT_PILOTO_PRICING: PilotoPricing = {
+  agencyListCents: 500000,
+  agencyDealCents: 300000,
+  adBudgetPerChannelCents: 100000,
+  continuationMonthlyCents: { site: 25000, 'site-whatsapp': 99700, completo: 300000 },
+}
+
+/** Zero é aceito: é o campo vazio enquanto ele digita outro valor. */
+function centsOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : fallback
+}
+
+/** Piloto antigo (sem orçamento) ou campo inválido fica com o valor padrão. */
+export function normalizePilotoPricing(raw: unknown): PilotoPricing {
+  const record = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const monthly =
+    record.continuationMonthlyCents && typeof record.continuationMonthlyCents === 'object'
+      ? (record.continuationMonthlyCents as Record<string, unknown>)
+      : {}
+  const defaults = DEFAULT_PILOTO_PRICING
+  return {
+    agencyListCents: centsOr(record.agencyListCents, defaults.agencyListCents),
+    agencyDealCents: centsOr(record.agencyDealCents, defaults.agencyDealCents),
+    adBudgetPerChannelCents: centsOr(record.adBudgetPerChannelCents, defaults.adBudgetPerChannelCents),
+    continuationMonthlyCents: {
+      site: centsOr(monthly.site, defaults.continuationMonthlyCents.site),
+      'site-whatsapp': centsOr(monthly['site-whatsapp'], defaults.continuationMonthlyCents['site-whatsapp']),
+      completo: centsOr(monthly.completo, defaults.continuationMonthlyCents.completo),
+    },
+  }
+}
+
+/** Planos com os valores do orçamento: agência + verba de cada canal. */
+export function getPilotoPlans(pricing: PilotoPricing): PilotoPlan[] {
+  return PILOTO_PLAN_TEMPLATES.map((plan) => {
+    const adBudgetCents = pricing.adBudgetPerChannelCents * plan.channels.length
+    return { ...plan, adBudgetCents, totalCents: pricing.agencyDealCents + adBudgetCents }
+  })
+}
+
+/** Desconto de fechar na reunião; zero quando o preço "de" não é maior. */
+export function dealSavingsCents(pricing: PilotoPricing): number {
+  return Math.max(0, pricing.agencyListCents - pricing.agencyDealCents)
+}
 
 export interface InstallmentBreakdown {
   count: number
@@ -82,7 +133,7 @@ export function calcInstallments(
  * "a partir de" no dia 45 e, completa, no slide de apoio que fica depois do fechamento.
  */
 export interface ContinuationPlan {
-  id: 'site' | 'site-whatsapp' | 'completo'
+  id: ContinuationPlanId
   name: string
   includes: string[]
   monthlyCents: number
@@ -92,12 +143,11 @@ export interface ContinuationPlan {
   highlighted: boolean
 }
 
-export const CONTINUATION_PLANS: ContinuationPlan[] = [
+const CONTINUATION_PLAN_TEMPLATES: Omit<ContinuationPlan, 'monthlyCents'>[] = [
   {
     id: 'site',
     name: 'Site',
     includes: ['Página de vendas no ar', 'Hospedagem e manutenção'],
-    monthlyCents: 25000,
     note: null,
     fit: 'Para manter a página no ar e seguir recebendo contatos por ela.',
     highlighted: false,
@@ -106,7 +156,6 @@ export const CONTINUATION_PLANS: ContinuationPlan[] = [
     id: 'site-whatsapp',
     name: 'Site + WhatsApp',
     includes: ['Tudo do plano Site', 'WhatsApp com IA e gestão dos contatos'],
-    monthlyCents: 99700,
     note: null,
     fit: 'Para seguir atendendo com a IA e sem perder nenhum contato.',
     highlighted: false,
@@ -115,11 +164,19 @@ export const CONTINUATION_PLANS: ContinuationPlan[] = [
     id: 'completo',
     name: 'Completo',
     includes: ['Tudo do Site + WhatsApp', 'Gestão e otimização dos anúncios'],
-    monthlyCents: 300000,
     note: 'verba de anúncio à parte',
     fit: 'Para continuar crescendo com os anúncios que deram resultado.',
     highlighted: true,
   },
 ]
 
-export const CONTINUATION_FROM_CENTS = Math.min(...CONTINUATION_PLANS.map((plan) => plan.monthlyCents))
+export function getContinuationPlans(pricing: PilotoPricing): ContinuationPlan[] {
+  return CONTINUATION_PLAN_TEMPLATES.map((plan) => ({
+    ...plan,
+    monthlyCents: pricing.continuationMonthlyCents[plan.id],
+  }))
+}
+
+export function continuationFromCents(pricing: PilotoPricing): number {
+  return Math.min(...Object.values(pricing.continuationMonthlyCents))
+}

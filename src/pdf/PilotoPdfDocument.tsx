@@ -18,7 +18,7 @@ import {
   RECURRENCE_NOTE,
   REPORT_METRICS,
   TEMPERATURE_LANES,
-  TRAFFIC_ITEMS,
+  trafficItems,
   TRAFFIC_LOOP,
   VIDEOS_NOTE,
   pilotoPromise,
@@ -28,15 +28,12 @@ import { formatCurrencyBRL } from '../lib/currencyBRL'
 import { PILOTO_ICONS } from '../lib/pilotoIcons'
 import type { PilotoIconName } from '../lib/pilotoIcons'
 import {
-  AD_BUDGET_PER_CHANNEL_CENTS,
-  AGENCY_DEAL_CENTS,
-  AGENCY_LIST_CENTS,
-  CONTINUATION_FROM_CENTS,
-  CONTINUATION_PLANS,
-  PILOTO_PLANS,
   calcInstallments,
+  continuationFromCents,
+  getContinuationPlans,
+  getPilotoPlans,
 } from '../lib/pilotoPricing'
-import type { ContinuationPlan, PilotoPlan } from '../lib/pilotoPricing'
+import type { ContinuationPlan, PilotoPlan, PilotoPricing } from '../lib/pilotoPricing'
 import type { PilotoAiContent, PilotoInput, SituationAnswer } from '../types/piloto'
 import {
   accentColorRgbChannels,
@@ -57,7 +54,7 @@ import {
 } from './ProposalPdfDocument'
 
 /** Sobe quando o layout muda sem alterar input/content, para o preview regenerar. */
-export const PILOTO_PDF_LAYOUT_REVISION = 15
+export const PILOTO_PDF_LAYOUT_REVISION = 16
 export const PILOTO_PDF_PAGE_COUNT = 8
 export const PILOTO_PDF_PAGE_COUNT_WITH_CONTINUATION = 9
 
@@ -558,13 +555,25 @@ function Connector() {
 }
 
 /* ---------- Planos ---------- */
-function PlanCard({ plan, accent, onAccent, hero }: { plan: PilotoPlan; accent: string; onAccent: string; hero: boolean }) {
+function PlanCard({
+  plan,
+  pricing,
+  accent,
+  onAccent,
+  hero,
+}: {
+  plan: PilotoPlan
+  pricing: PilotoPricing
+  accent: string
+  onAccent: string
+  hero: boolean
+}) {
   const text = hero ? '#FFFFFF' : BLACK
   const soft = hero ? '#9B9B9B' : SOFT_TEXT
   const ruleColor = hero ? '#2E2E2E' : RULE
   const rows = [
-    { label: 'Agência', value: AGENCY_DEAL_CENTS },
-    ...plan.channels.map((channel) => ({ label: `Verba ${channel}`, value: AD_BUDGET_PER_CHANNEL_CENTS })),
+    { label: 'Agência', value: pricing.agencyDealCents },
+    ...plan.channels.map((channel) => ({ label: `Verba ${channel}`, value: pricing.adBudgetPerChannelCents })),
   ]
 
   return (
@@ -728,7 +737,10 @@ export function PilotoPdfDocument({
 }: PilotoPdfDocumentProps): ReactElement {
   const accent = normalizeAccentColor(input.accentColor)
   const onAccent = accentForegroundColor(accent)
-  const installments = calcInstallments(AGENCY_DEAL_CENTS, input.installmentFeeRate)
+  const { pricing } = input
+  const installments = calcInstallments(pricing.agencyDealCents, input.installmentFeeRate)
+  const plans = getPilotoPlans(pricing)
+  const continuationPlans = getContinuationPlans(pricing)
   const lead = input.leadCompanyName.trim()
 
   const headline = content.diagnosisHeadline.trim()
@@ -736,8 +748,8 @@ export function PilotoPdfDocument({
   const funnelLabels = [content.funnelTopLabel, content.funnelMiddleLabel, content.funnelBottomLabel]
   const angles = [0, 1, 2].map((index) => content.adAngles[index] ?? { title: '', description: '' })
   const closing = content.closingParagraph.trim() || CLOSING_FALLBACK
-  const hero = PILOTO_PLANS.find((plan) => plan.highlighted) ?? PILOTO_PLANS[0]
-  const others = PILOTO_PLANS.filter((plan) => plan.id !== hero.id)
+  const hero = plans.find((plan) => plan.highlighted) ?? plans[0]
+  const others = plans.filter((plan) => plan.id !== hero.id)
   const situation = SITUATION_COPY.flatMap((item) => {
     const answer: SituationAnswer = input[item.key]
     return answer === 'nao_sei' ? [] : [{ label: item.label, value: answer === 'sim' ? item.yes : item.no, gap: answer === 'nao' }]
@@ -951,7 +963,7 @@ export function PilotoPdfDocument({
             </View>
             <View style={{ width: HALF_W, marginLeft: HALF_GAP, justifyContent: 'center' }}>
               <Rows gap={11}>
-                {TRAFFIC_ITEMS.map((item) => (
+                {trafficItems(pricing.adBudgetPerChannelCents).map((item) => (
                   <View key={item.title}>
                     <Text style={[s.title, { fontSize: 15.5 }]}>{item.title}</Text>
                     <Text style={[s.desc, { fontSize: 13.5 }]}>{item.description}</Text>
@@ -1047,7 +1059,7 @@ export function PilotoPdfDocument({
               ))}
               <View style={{ borderTopWidth: 1, borderTopColor: RULE, marginTop: 10, paddingTop: 8 }}>
                 <Text style={{ fontFamily: FONT, fontWeight: 700, fontSize: 12.5, color: SOFT_TEXT }}>
-                  Planos a partir de {formatCurrencyBRL(CONTINUATION_FROM_CENTS)}/mês
+                  Planos a partir de {formatCurrencyBRL(continuationFromCents(pricing))}/mês
                 </Text>
               </View>
             </View>
@@ -1059,11 +1071,11 @@ export function PilotoPdfDocument({
       <LightPage input={input} accent={accent}>
         <View wrap={false}>
           <SectionHeading title="Investimento" accent={accent} />
-          <PlanCard plan={hero} accent={accent} onAccent={onAccent} hero />
+          <PlanCard plan={hero} pricing={pricing} accent={accent} onAccent={onAccent} hero />
           <View style={{ flexDirection: 'row', marginTop: 14 }}>
             {others.map((plan, index) => (
               <View key={plan.id} style={{ flex: 1, marginLeft: index === 0 ? 0 : 14, flexDirection: 'row' }}>
-                <PlanCard plan={plan} accent={accent} onAccent={onAccent} hero={false} />
+                <PlanCard plan={plan} pricing={pricing} accent={accent} onAccent={onAccent} hero={false} />
               </View>
             ))}
           </View>
@@ -1074,8 +1086,8 @@ export function PilotoPdfDocument({
               <View style={P.paymentContent}>
                 <Text style={P.paymentLabel}>Condição de fechamento</Text>
                 <Text style={[P.paymentBody, { fontSize: 16 }]}>
-                  Agência de <Text style={{ textDecoration: 'line-through', color: SOFT_TEXT }}>{formatCurrencyBRL(AGENCY_LIST_CENTS)}</Text> por{' '}
-                  <Text style={[P.paymentBodyBold, { fontSize: 16 }]}>{formatCurrencyBRL(AGENCY_DEAL_CENTS)}</Text>. À vista no Pix ou em até 10x
+                  Agência de <Text style={{ textDecoration: 'line-through', color: SOFT_TEXT }}>{formatCurrencyBRL(pricing.agencyListCents)}</Text> por{' '}
+                  <Text style={[P.paymentBodyBold, { fontSize: 16 }]}>{formatCurrencyBRL(pricing.agencyDealCents)}</Text> fechando na reunião. À vista no Pix ou em até 10x
                   de <Text style={[P.paymentBodyBold, { fontSize: 16 }]}>{formatCurrencyBRL(installments.installmentCents)}</Text> no cartão (total{' '}
                   {formatCurrencyBRL(installments.totalCents)}).
                 </Text>
@@ -1112,8 +1124,8 @@ export function PilotoPdfDocument({
             </Text>
             {(() => {
               const heroPlan =
-                CONTINUATION_PLANS.find((plan) => plan.highlighted) ?? CONTINUATION_PLANS[CONTINUATION_PLANS.length - 1]
-              const sidePlans = CONTINUATION_PLANS.filter((plan) => plan.id !== heroPlan.id)
+                continuationPlans.find((plan) => plan.highlighted) ?? continuationPlans[continuationPlans.length - 1]
+              const sidePlans = continuationPlans.filter((plan) => plan.id !== heroPlan.id)
               return (
                 <View>
                   <View style={{ flexDirection: 'row' }}>

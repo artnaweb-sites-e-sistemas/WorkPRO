@@ -152,10 +152,22 @@ export const VIDEOS_NOTE =
 
 export const TRAFFIC_LOOP = ['Anunciar', 'Medir', 'Ajustar']
 
-export const TRAFFIC_ITEMS: PilotoContentItem[] = [
+/** "R$ 1.000" sem centavos quando redondo, como nos slides. */
+function moneyLabel(cents: number): string {
+  const round = cents % 100 === 0
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: round ? 0 : 2,
+    maximumFractionDigits: round ? 0 : 2,
+  }).format(cents / 100)
+}
+
+/** Itens do tráfego; a verba por canal vem do orçamento do piloto. */
+export const trafficItems = (adBudgetPerChannelCents: number): PilotoContentItem[] => [
   {
     title: 'Verba em campo',
-    description: 'R$ 1.000 por canal, pagos direto às plataformas ao longo dos 30 dias.',
+    description: `${moneyLabel(adBudgetPerChannelCents)} por canal, pagos direto às plataformas ao longo dos 30 dias.`,
   },
   {
     title: 'Otimização contínua',
