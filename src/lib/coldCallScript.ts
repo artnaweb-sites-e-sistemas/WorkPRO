@@ -34,7 +34,7 @@ export const CALL_FIELDS: Record<string, CallField> = {
   decisores: { label: 'Quem mais decide', color: 'c8', hint: 'Ex.: o sócio, Marcos', short: true },
   reuniao: { label: 'Dia e hora da reunião', color: 'c1', hint: 'Ex.: quinta, 10h', short: true },
   /* escritos pela IA a partir do nicho; sem nicho, vale o genérico */
-  grupo: { label: 'Como chamar o nicho', color: null, hint: '', fallback: 'outros negócios daqui' },
+  grupo: { label: 'Como chamar o nicho', color: null, hint: '', fallback: 'negócios aqui da região' },
   clientes: { label: 'Clientes', color: null, hint: '', fallback: 'clientes' },
   dor1: {
     label: 'Dor do nicho',
@@ -78,6 +78,10 @@ export interface CallChoice {
   to: string | { outcome: CallOutcome }
   /** caminho principal: botão cheio */
   primary?: boolean
+  /** recusa: botão em vermelho, para achar rápido */
+  danger?: boolean
+  /** só o ícone de desligar (o rótulo vira aria-label e dica) */
+  iconOnly?: boolean
   /** copia uma anotação para outra ao escolher (se a de destino estiver vazia) */
   carry?: { from: string; to: string }
 }
@@ -129,6 +133,7 @@ export const CALL_NODES: Record<string, CallNode> = {
     choices: [
       { label: 'É o responsável', to: 'abertura', primary: true, carry: { from: 'atendente', to: 'responsavel' } },
       { label: 'Não é o responsável', to: 'recepcao' },
+      { label: 'Recusou', to: { outcome: 'sem-interesse' }, danger: true, iconOnly: true },
     ],
   },
   recepcao: {
@@ -140,15 +145,12 @@ export const CALL_NODES: Record<string, CallNode> = {
       '@responsavel {atendente}, você pode me ajudar? Qual o nome do responsável aí?',
       'Consegue me passar pra {responsavel} rapidinho? É coisa de dois minutos.#Tom de quem já espera o sim.',
     ],
-    branch: [
-      ['"É sobre o quê?"', 'É sobre como chegam os {clientes} novos da {empresa}, pelo Google e pelo WhatsApp. É {responsavel} que cuida disso, né?'],
-      ['"É venda?"', 'É uma proposta pra trazer mais clientes, sim. Por isso quero falar com quem decide. Leva dois minutos.'],
-    ],
     capture: ['responsavel'],
     choices: [
       { label: 'Transferiu', to: 'abertura', primary: true },
       { label: 'Não está ou está ocupado', to: 'recepcao-retorno' },
       { label: 'Pediu pra mandar mensagem', to: 'recepcao-mensagem' },
+      { label: 'Recusou', to: { outcome: 'sem-interesse' }, danger: true, iconOnly: true },
     ],
   },
   'recepcao-retorno': {
@@ -190,23 +192,24 @@ export const CALL_NODES: Record<string, CallNode> = {
     choices: [
       { label: '"Pode falar"', to: 'motivo', primary: true },
       { label: '"Agora não dá"', to: 'ocupado' },
-      { label: 'Não quer ouvir', to: 'encerrar' },
+      { label: 'Não quer ouvir', to: 'encerrar', danger: true },
     ],
   },
   motivo: {
     id: 'motivo',
     stage: 'Responsável',
     title: 'Por que liguei',
-    goal: 'Falar do problema dele, não do seu serviço.',
+    goal: 'Uma frase sobre você e uma pergunta sobre ele. Nada de apresentação longa.',
     say: [
-      'Eu ajudo negócios como a {empresa}, aqui em {cidade}, a trazer {clientes} novos pelo Google, pelo Instagram e pelo WhatsApp.',
-      'Falando com {grupo}, eu sempre ouço duas coisas: {dor1}, e {dor2}.',
-      '@dor Alguma dessas acontece aí também?#Depois da pergunta, silêncio. Quem fala primeiro agora é ele.',
+      'Eu ajudo {grupo} a trazer {clientes} novos pelo Google e pelo WhatsApp.',
+      '@dor Me diz uma coisa: hoje, a entrada de {clientes} novos aí tá do jeito que você queria?#Depois da pergunta, silêncio. Quem fala primeiro agora é ele.',
+      'Tipo: {dor1}, ou {dor2}?#Só se ele travar. É um exemplo, não um discurso.',
     ],
     capture: ['dor'],
     choices: [
       { label: 'Reconheceu um problema', to: 'aprofundar', primary: true },
       { label: '"Tá tudo tranquilo"', to: 'tranquilo' },
+      { label: 'Recusou', to: { outcome: 'sem-interesse' }, danger: true, iconOnly: true },
     ],
   },
   tranquilo: {
@@ -221,7 +224,7 @@ export const CALL_NODES: Record<string, CallNode> = {
     capture: ['hoje'],
     choices: [
       { label: 'Abriu espaço', to: 'convite', primary: true },
-      { label: 'Não quis seguir', to: 'encerrar' },
+      { label: 'Não quis seguir', to: 'encerrar', danger: true },
     ],
   },
   aprofundar: {
@@ -235,7 +238,10 @@ export const CALL_NODES: Record<string, CallNode> = {
       '@whats E quando alguém chama no WhatsApp, quem responde? Dá conta?',
     ],
     capture: ['hoje', 'whats'],
-    choices: [{ label: 'Fazer o convite', to: 'convite', primary: true }],
+    choices: [
+      { label: 'Fazer o convite', to: 'convite', primary: true },
+      { label: 'Recusou', to: { outcome: 'sem-interesse' }, danger: true, iconOnly: true },
+    ],
   },
   convite: {
     id: 'convite',
@@ -251,7 +257,7 @@ export const CALL_NODES: Record<string, CallNode> = {
     choices: [
       { label: 'Topou', to: 'agendar', primary: true },
       { label: 'Pediu pra ligar depois', to: 'ocupado' },
-      { label: 'Não quis', to: 'encerrar' },
+      { label: 'Não quis', to: 'encerrar', danger: true },
     ],
   },
   agendar: {
@@ -294,6 +300,41 @@ export const CALL_NODES: Record<string, CallNode> = {
   },
 }
 
+/**
+ * O que quem atende (recepção) costuma perguntar antes de passar a ligação.
+ * Responda curto, com segurança, e devolva com uma pergunta que leve ao responsável.
+ */
+export const CALL_RECEPTION_OBJECTIONS: [string, string][] = [
+  [
+    '"Do que se trata?"',
+    'Ah, é rapidinho, {atendente}. Eu tava olhando o Google da {empresa} e reparei numa coisa que queria mostrar pra quem cuida da parte dos {clientes} novos. Você me ajuda a falar com essa pessoa?#Tom leve, de quem pede ajuda. Sem falar em venda, anúncio ou proposta aqui.',
+  ],
+  [
+    '"Quem gostaria?" / "De onde fala?"',
+    'É o {eu}, da {agencia}. Eu ajudo negócios daqui da região a trazer {clientes} novos. Consegue me passar pra quem cuida disso?',
+  ],
+  [
+    '"É venda?" / "É propaganda?"',
+    'É uma proposta, sim, por isso quero falar com quem decide. São dois minutinhos. Consegue me passar?#Honestidade aqui abre mais portas que desviar.',
+  ],
+  [
+    '"Ele não está" / "Está atendendo"',
+    'Sem problema. Qual o melhor horário pra eu falar com ele? De manhã ou à tarde?#Anote e siga para "Marcar o retorno".',
+  ],
+  [
+    '"Manda por e-mail" / "Deixa recado"',
+    'Mando sim. Qual o WhatsApp de quem decide? E que horário eu ligo pra ver se chegou?#Siga para "Pediu mensagem".',
+  ],
+  [
+    '"Não temos interesse"',
+    'Entendo. Só pra eu não incomodar à toa: quem cuida dos clientes novos aí é o dono mesmo? Qual o melhor horário pra falar com ele?#Quem decide é o dono, não a recepção.',
+  ],
+  [
+    '"Como conseguiu esse número?"',
+    'Tá no [Google / Instagram] da {empresa}. Eu procuro negócios da região que dá pra ajudar.#Diga sempre a verdade de onde tirou.',
+  ],
+]
+
 /** Objeções do responsável: aparecem ao lado das fichas dele. Responda com pergunta. */
 export const CALL_OBJECTIONS: [string, string][] = [
   [
@@ -302,7 +343,7 @@ export const CALL_OBJECTIONS: [string, string][] = [
   ],
   [
     '"Não tenho interesse."',
-    'Justo. Posso te perguntar uma coisa antes de desligar? Quem me diz isso normalmente já tem alguém cuidando dos clientes novos, ou tá com a agenda cheia. Qual é o seu caso?',
+    'Tranquilo, {responsavel}, sem problema. Obrigado pelo seu tempo, e bom trabalho aí!#Não insista: quem já fechou não reabre por telefone. Desligue com o botão vermelho.',
   ],
   [
     '"Me manda no WhatsApp."',
@@ -310,7 +351,7 @@ export const CALL_OBJECTIONS: [string, string][] = [
   ],
   [
     '"Já tenho alguém que faz isso."',
-    'Que bom. E tá trazendo o resultado que você esperava? Se pudesse mudar uma coisa, qual seria?',
+    'Ah, que bom que já tem alguém cuidando disso. Obrigado pela atenção, {responsavel}, e sucesso aí!#Não insista. Desligue com o botão vermelho.',
   ],
   [
     '"Quanto custa?"',

@@ -21,7 +21,8 @@ vez: é ele que manda o histórico para a extensão.
 - **Painel da empresa** (Maps ou busca): aparece uma barra com o status da última ligação e o
   botão **Enviar para o Cold call** (ou **Abrir no Cold call**, se já ligou).
 - **Listas**: as empresas que já receberam ligação ganham uma faixa na cor do status.
-  - Azul: não atendeu ou pediu para ligar de novo.
+  - Azul: não atendeu.
+  - Laranja: pediu para ligar de novo.
   - Verde: reunião marcada.
   - Vermelho: não quis.
   - Cinza: ligação que ficou pela metade.

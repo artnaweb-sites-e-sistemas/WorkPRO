@@ -298,37 +298,40 @@
     return node;
   }
 
-  /** Painel flutuante que abre ao clicar num card da aba Locais. */
-  function renderLocalPanel() {
-    const panel = [...document.querySelectorAll(".R4aD0e")].find((el) => getComputedStyle(el).display !== "none");
-    if (!panel) return false;
-    const content = panel.querySelector("async-local-kp") || panel;
-    const heading = [
-      ...content.querySelectorAll('[data-attrid="title"], h2, [role="heading"]')
-    ].find((el) => clean(el.textContent).length > 1 && !el.closest(".wpcc-bar"));
-    if (!heading) return true;
+  /** Título do painel que está aberto (reaproveitado enquanto continuar na página). */
+  let panelTitle = null;
 
-    const title = clean(heading.textContent);
-    let lead = null;
-    if (selectedLead) {
-      const a = wpccCompanyKey(selectedLead.empresa);
-      const b = wpccCompanyKey(title);
-      if (a && b && (a === b || a.startsWith(b) || b.startsWith(a))) lead = selectedLead;
+  /**
+   * Acha o título do painel pelo nome da empresa clicada, sem depender das classes do Google:
+   * o maior texto visível com esse nome, fora da lista de resultados.
+   */
+  function findPanelTitle(name) {
+    const key = wpccCompanyKey(name);
+    if (!key) return null;
+    if (panelTitle && panelTitle.isConnected && wpccCompanyKey(panelTitle.textContent) === key) return panelTitle;
+
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let best = null;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (wpccCompanyKey(node.nodeValue) !== key) continue;
+      const element = node.parentElement;
+      if (!element || element.closest(".w7Dbne, .wpcc-bar, .wpcc-card-status, script, style, title")) continue;
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height) continue;
+      const size = parseFloat(getComputedStyle(element).fontSize) || 0;
+      if (!best || size > best.size) best = { element, size };
     }
-    if (!lead) {
-      const text = content.innerText || "";
-      const tel = content.querySelector('a[href^="tel:"]');
-      const address = text.split("\n").find((line) => /,\s*[^,]+?\s+-\s+[A-Z]{2}\b/.test(line)) || "";
-      const route = content.querySelector('a[href*="!1s0x"]');
-      lead = {
-        empresa: title,
-        telefone: tel ? phoneFromText(tel.getAttribute("href")) || phoneFromText(tel.textContent) : phoneFromText(text),
-        cidade: cityFromAddress(address),
-        categoria: "",
-        placeId: wpccPlaceId(route ? route.getAttribute("href") : "")
-      };
-    }
-    mountBar({ after: blockOf(heading) }, lead);
+    panelTitle = best && best.size >= 16 ? best.element : null;
+    return panelTitle;
+  }
+
+  /** Painel que abre ao clicar num card da aba Locais: a barra entra embaixo do título. */
+  function renderLocalPanel() {
+    if (!selectedLead) return false;
+    const title = findPanelTitle(selectedLead.empresa);
+    if (!title) return false;
+    mountBar({ after: blockOf(title) }, selectedLead);
     return true;
   }
 

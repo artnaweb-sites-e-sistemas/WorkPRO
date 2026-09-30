@@ -24,12 +24,12 @@ function wpccPhoneKey(phone) {
 }
 
 /**
- * Status mostrados no Google. Azul: tentar de novo (não atendeu ou pediu retorno).
+ * Status mostrados no Google. Azul: não atendeu. Laranja: pediu para ligar de novo.
  * Verde: reunião marcada. Vermelho: não quis. Cinza: ligação que ficou pela metade.
  */
 const WPCC_STATUS = {
   "nao-atendeu": { label: "Não atendeu", color: "#3B82F6" },
-  retorno: { label: "Ligar de novo", color: "#3B82F6" },
+  retorno: { label: "Ligar de novo", color: "#F97316" },
   agendou: { label: "Reunião marcada", color: "#22C55E" },
   "sem-interesse": { label: "Não quis", color: "#EF4444" },
   andamento: { label: "Em andamento", color: "#A1A1AA" }

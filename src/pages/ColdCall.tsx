@@ -9,12 +9,15 @@ import {
   CALL_MESSAGES,
   CALL_NODES,
   CALL_OBJECTIONS,
+  CALL_RECEPTION_OBJECTIONS,
   CALL_OUTCOMES,
   CALL_START,
   fillCallText,
 } from '../lib/coldCallScript'
 import type { CallChoice, CallLine, CallNode, CallOutcome } from '../lib/coldCallScript'
 import { parseKeyQuestion } from '../lib/pilotoScript'
+import { ColdCallIdeas } from '../components/ColdCallIdeas'
+import type { ProspectSuggestion } from '../ai/suggestProspecting'
 import { announceColdCallReady, readExtensionLead, syncColdCallsToExtension } from '../lib/coldCallExtension'
 import type { ExtensionLead } from '../lib/coldCallExtension'
 import { adaptColdCallNiche } from '../ai/adaptColdCallNiche'
@@ -62,7 +65,7 @@ const EMPTY_CALL: ColdCallData = {
 /** Passam de uma ligação para a próxima: normalmente você liga para vários do mesmo nicho. */
 const CARRIED_NOTES = ['nicho', 'cidade', 'nichoSig', 'grupo', 'clientes', 'dor1', 'dor2']
 
-type Mode = 'call' | 'history'
+type Mode = 'call' | 'history' | 'ideas'
 type HistoryFilter = 'todas' | 'pendentes' | CallOutcome
 
 const SIDE_LIST_MAX = 5
@@ -217,6 +220,15 @@ function CallLink({ phone }: { phone: string }) {
     <span className={`${base} border border-border text-muted-foreground opacity-50`} aria-disabled="true" title="Digite o telefone para ligar">
       Ligar
     </span>
+  )
+}
+
+/** Telefone no gancho: recusou e desligou. */
+function HangUpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+      <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.956.956 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28a11.27 11.27 0 0 0-2.67-1.85.996.996 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" />
+    </svg>
   )
 }
 
@@ -409,6 +421,8 @@ export default function ColdCall() {
   const view = useMemo(() => ({ ...call.notes, ...seller }), [call.notes, seller])
   const node: CallNode = CALL_NODES[call.nodeId] ?? CALL_NODES[CALL_START]
   const owner = reachedOwner(call)
+  // Recepção e responsável fazem perguntas diferentes: cada um tem a sua lista.
+  const objections = owner ? CALL_OBJECTIONS : node.stage === 'Recepção' ? CALL_RECEPTION_OBJECTIONS : null
   const company = (call.notes.empresa ?? '').trim()
 
   const today = new Date().toDateString()
@@ -462,6 +476,7 @@ export default function ColdCall() {
       return
     }
     setOpenObjection(null)
+    setForward([])
     setCall((current) => {
       const startedAtMs = current.startedAtMs || Date.now()
       const notes = { ...current.notes }
@@ -476,8 +491,12 @@ export default function ColdCall() {
     })
   }
 
+  /** Fichas de onde você voltou: a seta → leva de volta, sem refazer as escolhas. */
+  const [forward, setForward] = useState<Pick<ColdCallData, 'nodeId' | 'path' | 'outcome'>[]>([])
+
   function back() {
     setOpenObjection(null)
+    setForward((stack) => [...stack, { nodeId: call.nodeId, path: call.path, outcome: call.outcome }])
     setCall((current) => {
       if (current.outcome) {
         return { ...current, outcome: null }
@@ -487,8 +506,17 @@ export default function ColdCall() {
     })
   }
 
+  function goForward() {
+    const target = forward[forward.length - 1]
+    if (!target) return
+    setOpenObjection(null)
+    setForward((stack) => stack.slice(0, -1))
+    setCall((current) => ({ ...current, ...target }))
+  }
+
   /** Grava o que falta e começa uma ligação nova. */
   function nextCall() {
+    setForward([])
     if (saveTimer.current) {
       clearTimeout(saveTimer.current)
       saveTimer.current = null
@@ -530,6 +558,7 @@ export default function ColdCall() {
 
   function resumeCurrent() {
     setOpenObjection(null)
+    setForward([])
     setCall((current) => ({
       ...current,
       outcome: null,
@@ -554,6 +583,15 @@ export default function ColdCall() {
     }
   }
 
+  /** Sugestão da aba "Onde prospectar": nicho e cidade viram os da próxima ligação. */
+  function applySuggestion(suggestion: ProspectSuggestion) {
+    const cidade = suggestion.regiao.replace(/\s*[-–,]\s*[A-Z]{2}$/, '').trim()
+    const inProgress = call.nodeId !== CALL_START || call.outcome !== null || callId !== null
+    if (inProgress) nextCall()
+    setCall((current) => ({ ...current, notes: { ...current.notes, nicho: suggestion.nicho, cidade } }))
+    setMode('call')
+  }
+
   function showHistory(filter: HistoryFilter) {
     setHistoryFilter(filter)
     setMode('history')
@@ -561,7 +599,8 @@ export default function ColdCall() {
 
   /**
    * Empresa enviada pela extensão (Google Maps / Locais). Já ligou antes: abre aquela ligação.
-   * Senão, começa uma nova com nome, telefone e cidade; a categoria do Google vira nicho se ele estiver vazio.
+   * Senão, começa uma nova com nome e telefone. Nicho e cidade ficam os da ligação anterior:
+   * a categoria do Google varia de empresa para empresa e faria a IA adaptar o roteiro de novo à toa.
    */
   function receiveLead(lead: ExtensionLead) {
     const companyKey = companyKeyOf(lead.empresa)
@@ -590,8 +629,8 @@ export default function ColdCall() {
     setCall((current) => {
       const notes: Record<string, string> = { ...current.notes, empresa: lead.empresa, telefone: lead.telefone }
       if (lead.placeId) notes.googlePlace = lead.placeId
-      if (lead.cidade) notes.cidade = lead.cidade
-      if (!(notes.nicho ?? '').trim() && lead.categoria) notes.nicho = lead.categoria
+      // A cidade fica a que você já definiu (a prospecção do dia costuma ser numa cidade só).
+      if (!(notes.cidade ?? '').trim() && lead.cidade) notes.cidade = lead.cidade
       return { ...current, notes }
     })
     setMode('call')
@@ -670,6 +709,7 @@ export default function ColdCall() {
               [
                 ['call', company ? `Ligação · ${company}` : 'Ligação'],
                 ['history', 'Histórico'],
+                ['ideas', 'Onde prospectar'],
               ] as const
             ).map(([value, label]) => (
               <button
@@ -709,7 +749,9 @@ export default function ColdCall() {
         </div>
       </header>
 
-      {mode === 'history' ? (
+      {mode === 'ideas' ? (
+        <ColdCallIdeas calls={calls} onUse={applySuggestion} />
+      ) : mode === 'history' ? (
         <History
           calls={calls}
           filter={historyFilter}
@@ -754,6 +796,17 @@ export default function ColdCall() {
                   className="rounded px-1 text-base text-muted-foreground transition-colors hover:text-foreground"
                 >
                   ←
+                </button>
+              ) : null}
+              {forward.length ? (
+                <button
+                  type="button"
+                  onClick={goForward}
+                  aria-label="Voltar para onde você estava"
+                  title="Voltar para onde você estava"
+                  className="rounded px-1 text-base text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  →
                 </button>
               ) : null}
               <span>{node.stage}</span>
@@ -817,13 +870,19 @@ export default function ColdCall() {
                     key={choice.label}
                     type="button"
                     onClick={() => choose(choice)}
+                    aria-label={choice.iconOnly ? choice.label : undefined}
+                    title={choice.iconOnly ? choice.label : undefined}
                     className={
                       choice.primary
                         ? 'whitespace-nowrap rounded-md bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors'
-                        : 'whitespace-nowrap rounded-md border border-border px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-surface-2'
+                        : choice.danger
+                          ? `flex items-center justify-center whitespace-nowrap rounded-md bg-status-error text-sm font-semibold text-white transition-colors hover:bg-status-error/85 ${
+                              choice.iconOnly ? 'h-[42px] w-[42px]' : 'px-4 py-2.5'
+                            }`
+                          : 'whitespace-nowrap rounded-md border border-border px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-surface-2'
                     }
                   >
-                    {choice.label}
+                    {choice.iconOnly ? <HangUpIcon /> : choice.label}
                   </button>
                 ))}
               </div>
@@ -903,13 +962,13 @@ export default function ColdCall() {
             </div>
           ) : null}
 
-          {!call.outcome && owner ? (
+          {!call.outcome && objections ? (
             <div>
               <p className="mb-1 text-sm" style={{ color: 'var(--rt-muted)' }}>
                 Se ele disser
               </p>
               <ul className="divide-y" style={{ borderColor: 'var(--rt-rule)' }}>
-                {CALL_OBJECTIONS.map(([said, reply], objectionIndex) => {
+                {objections.map(([said, reply], objectionIndex) => {
                   const open = openObjection === objectionIndex
                   return (
                     <li key={said} className="py-2.5" style={{ borderColor: 'var(--rt-rule)' }}>
@@ -1236,6 +1295,33 @@ const HISTORY_FILTERS: { value: HistoryFilter; label: string }[] = [
   { value: 'pendentes', label: 'Em andamento' },
 ]
 
+type Period = 'hoje' | '7d' | '30d' | 'tudo'
+
+const PERIODS: { value: Period; label: string }[] = [
+  { value: 'hoje', label: 'Hoje' },
+  { value: '7d', label: '7 dias' },
+  { value: '30d', label: '30 dias' },
+  { value: 'tudo', label: 'Tudo' },
+]
+
+function inPeriod(item: ColdCall, period: Period): boolean {
+  if (period === 'tudo') return true
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  if (period === '7d') start.setDate(start.getDate() - 6)
+  if (period === '30d') start.setDate(start.getDate() - 29)
+  return item.startedAtMs >= start.getTime()
+}
+
+/** Atendeu: saiu do preparo pelo "Atendeu" (passou por "Quem atendeu"). */
+function wasAnswered(item: ColdCall): boolean {
+  return [...item.path, item.nodeId].includes('quem')
+}
+
+function percent(part: number, total: number): string {
+  return total ? `${Math.round((part / total) * 100)}%` : '–'
+}
+
 function matchesFilter(item: ColdCall, filter: HistoryFilter): boolean {
   if (filter === 'todas') return true
   if (filter === 'pendentes') return item.outcome === null
@@ -1261,9 +1347,12 @@ function History({
   onLoadMore: () => void
 }) {
   const [search, setSearch] = useState('')
+  // Veio de "Ver todas" de um resultado (ex.: ligar de novo): mostra tudo, não só hoje.
+  const [period, setPeriod] = useState<Period>(() => (filter === 'todas' ? 'hoje' : 'tudo'))
   const term = companyKeyOf(search)
   const digits = search.replace(/\D/g, '')
   const found = calls.filter((item) => {
+    if (!inPeriod(item, period)) return false
     if (!term) return true
     const haystack = companyKeyOf(
       [item.notes.empresa, item.notes.responsavel, item.notes.nicho, item.notes.cidade].filter(Boolean).join(' '),
@@ -1276,6 +1365,20 @@ function History({
     HISTORY_FILTERS.map((option) => [option.value, found.filter((item) => matchesFilter(item, option.value)).length]),
   ) as Record<HistoryFilter, number>
 
+  // Números do período (e da busca), sem o filtro de resultado.
+  const total = found.length
+  const answered = found.filter(wasAnswered).length
+  const withOwner = found.filter((item) => reachedOwner(item)).length
+  const refused = found.filter((item) => item.outcome === 'sem-interesse').length
+  const booked = found.filter((item) => item.outcome === 'agendou').length
+  const stats: { label: string; value: number; detail: string; color?: string }[] = [
+    { label: 'Ligações', value: total, detail: '' },
+    { label: 'Atenderam', value: answered, detail: percent(answered, total) },
+    { label: 'Com o responsável', value: withOwner, detail: percent(withOwner, total) },
+    { label: 'Recusaram', value: refused, detail: percent(refused, total), color: refused ? 'var(--c3-fg)' : undefined },
+    { label: 'Reuniões', value: booked, detail: percent(booked, total), color: booked ? OUTCOME_COLOR.good : undefined },
+  ]
+
   const groups: { label: string; items: ColdCall[] }[] = []
   for (const item of visible) {
     const label = dayLabel(item.startedAtMs)
@@ -1286,7 +1389,44 @@ function History({
 
   return (
     <div className="mx-auto mt-6 max-w-6xl px-6">
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b pb-5" style={{ borderColor: 'var(--rt-rule)' }}>
+        <dl className="flex flex-wrap gap-x-10 gap-y-4">
+          {stats.map((stat) => (
+            <div key={stat.label}>
+              <dt className="text-xs" style={{ color: 'var(--rt-muted)' }}>
+                {stat.label}
+              </dt>
+              <dd className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-[26px] font-bold leading-none tabular-nums text-foreground" style={stat.color ? { color: stat.color } : undefined}>
+                  {stat.value}
+                </span>
+                {stat.detail ? (
+                  <span className="text-xs tabular-nums" style={{ color: 'var(--rt-faint)' }}>
+                    {stat.detail}
+                  </span>
+                ) : null}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <div className="flex gap-1" role="group" aria-label="Período">
+          {PERIODS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={period === option.value}
+              onClick={() => setPeriod(option.value)}
+              className={`whitespace-nowrap rounded px-2.5 py-1 text-sm transition-colors ${
+                period === option.value ? 'bg-surface-2 font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center gap-4">
         <input
           type="search"
           value={search}
