@@ -9,6 +9,7 @@ import ConversationView from './pages/ConversationView'
 import NewProposal from './pages/NewProposal'
 import NewPiloto from './pages/NewPiloto'
 import PilotoPresent from './pages/PilotoPresent'
+import PilotoRoteiro from './pages/PilotoRoteiro'
 
 export default function App() {
   return (
@@ -89,6 +90,14 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <PilotoPresent />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/piloto/:id/roteiro"
+              element={
+                <ProtectedRoute>
+                  <PilotoRoteiro />
                 </ProtectedRoute>
               }
             />

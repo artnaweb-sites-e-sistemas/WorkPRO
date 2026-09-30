@@ -35,14 +35,13 @@ const CORE_SLIDES: ComponentType<SlideProps>[] = [
 
 /**
  * Ordem da reunião: reconhecer o problema, entender o método, ver o plano, ver o preço.
- * O preço vem só no fim. A continuidade (opcional) fica imediatamente antes do fechamento.
+ * O preço e o fechamento vêm no fim. A continuidade (opcional) é o último slide.
  */
 export function getPilotoSlides(showContinuation = false): ComponentType<SlideProps>[] {
   if (!showContinuation) {
     return CORE_SLIDES
   }
-  const closing = CORE_SLIDES[CORE_SLIDES.length - 1]
-  return [...CORE_SLIDES.slice(0, -1), SlideContinuidade, closing]
+  return [...CORE_SLIDES, SlideContinuidade]
 }
 
 /** Lista completa (com continuidade) — útil para índices fixos do editor. */
@@ -50,7 +49,7 @@ export const SLIDES = getPilotoSlides(true)
 
 /**
  * Índice base sem o slide de continuidade.
- * Com continuidade ligada, o fechamento sobe 1 (continuidade entra antes dele).
+ * Com continuidade ligada, o fechamento permanece no mesmo índice (continuidade vai depois).
  */
 export const SLIDE_INDEX = {
   diagnostico: 1,
@@ -62,11 +61,7 @@ export const SLIDE_INDEX = {
 
 export function getPilotoSlideIndex(
   section: keyof typeof SLIDE_INDEX,
-  showContinuation: boolean,
+  _showContinuation: boolean,
 ): number {
-  const base = SLIDE_INDEX[section]
-  if (section === 'fechamento' && showContinuation) {
-    return base + 1
-  }
-  return base
+  return SLIDE_INDEX[section]
 }

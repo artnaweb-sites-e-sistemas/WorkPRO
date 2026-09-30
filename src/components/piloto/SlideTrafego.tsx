@@ -92,7 +92,7 @@ export function SlideTrafego({ input, content, accent, index, total }: SlideProp
       index={index}
       total={total}
       kicker="Tráfego · dias 16 a 45"
-      title="Verba real, dado real, ajuste constante"
+      title="Anúncios no ar, ajustados pra gastar menos"
     >
       {/* Duas metades iguais: o ciclo num painel suave, os itens alinhados ao centro dele */}
       <div className="grid h-full grid-cols-2 gap-10">

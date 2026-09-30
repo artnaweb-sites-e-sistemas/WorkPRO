@@ -860,6 +860,17 @@ export default function NewPiloto() {
                   <DownloadIcon />
                   Baixar PDF
                 </Button>
+                {pilotoId ? (
+                  <a
+                    href={`/piloto/${pilotoId}/roteiro`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Abre o roteiro da reunião numa nova aba, para deixar ao lado da chamada"
+                    className="inline-flex h-11 min-h-touch items-center justify-center gap-2 whitespace-nowrap border-2 border-border bg-transparent px-4 text-xs font-bold uppercase tracking-tight text-foreground transition-colors duration-150 hover:bg-foreground hover:text-background"
+                  >
+                    Roteiro
+                  </a>
+                ) : null}
                 <Button size="sm" disabled={busy} onClick={() => void handlePresent()}>
                   Apresentar
                 </Button>

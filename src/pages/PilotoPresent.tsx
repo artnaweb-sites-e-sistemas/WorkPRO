@@ -14,20 +14,18 @@ import {
 const STAGE_W = 1280
 const STAGE_H = 720
 
-/** Cursor customizado: círculo escuro + seta para a esquerda / direita. */
-function navCursor(direction: 'left' | 'right'): string {
-  const points = direction === 'left' ? '14,7 8,12 14,17' : '10,7 16,12 10,17'
+/** Cursor: círculo na cor da marca + seta branca centralizada (hotspot no centro). */
+function navCursor(direction: 'left' | 'right', accent: string): string {
+  // Chevron centrado em (16,16) — o SVG antigo usava y≈12 e a seta ficava alta.
+  const points = direction === 'left' ? '19.5,10 12,16 19.5,22' : '12.5,10 20,16 12.5,22'
   const svg = encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">` +
-      `<circle cx="16" cy="16" r="14" fill="#0B0B0B" fill-opacity="0.88"/>` +
-      `<polyline points="${points}" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `<circle cx="16" cy="16" r="14" fill="${accent}"/>` +
+      `<polyline points="${points}" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>` +
       `</svg>`,
   )
   return `url("data:image/svg+xml,${svg}") 16 16, ${direction === 'left' ? 'w-resize' : 'e-resize'}`
 }
-
-const CURSOR_PREV = navCursor('left')
-const CURSOR_NEXT = navCursor('right')
 
 function FullscreenIcon() {
   return (
@@ -52,6 +50,9 @@ export default function PilotoPresent() {
   const [fadeKey, setFadeKey] = useState(0)
 
   const slides = useMemo(() => getPilotoSlides(showContinuation), [showContinuation])
+  const accent = normalizeAccentColor(input?.accentColor)
+  const cursorPrev = useMemo(() => navCursor('left', accent), [accent])
+  const cursorNext = useMemo(() => navCursor('right', accent), [accent])
 
   useEffect(() => {
     if (!id) {
@@ -185,7 +186,6 @@ export default function PilotoPresent() {
     )
   }
 
-  const accent = normalizeAccentColor(input.accentColor)
   const Slide = slides[slideIndex]
   const progress = ((slideIndex + 1) / slides.length) * 100
 
@@ -231,14 +231,14 @@ export default function PilotoPresent() {
           type="button"
           aria-label="Slide anterior"
           className="absolute inset-y-0 left-0 z-20 w-[30%] bg-transparent"
-          style={{ cursor: CURSOR_PREV }}
+          style={{ cursor: cursorPrev }}
           onClick={() => goTo(slideIndex - 1)}
         />
         <button
           type="button"
           aria-label="Próximo slide"
           className="absolute inset-y-0 right-0 z-20 w-[30%] bg-transparent"
-          style={{ cursor: CURSOR_NEXT }}
+          style={{ cursor: cursorNext }}
           onClick={() => goTo(slideIndex + 1)}
         />
       </div>

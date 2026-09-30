@@ -51,11 +51,65 @@ export interface PilotoAiContent {
   closingParagraph: string
 }
 
+/** Anotações da reunião feitas no roteiro: o que o lead respondeu em cada campo. */
+export interface PilotoScript {
+  notes: Record<string, string>
+  cardIndex: number
+  /** o que foi digitado antes da correção da IA, para desfazer */
+  raw: Record<string, string>
+  /** último valor aceito (corrigido ou desfeito): igual ao campo = não chama a IA de novo */
+  settled: Record<string, string>
+  /** falas personalizadas pela IA: `sig` = as respostas usadas; mudou a resposta, gera de novo */
+  adapted: Record<string, { sig: string; text: string }>
+}
+
+export const EMPTY_PILOTO_SCRIPT: PilotoScript = { notes: {}, cardIndex: 0, raw: {}, settled: {}, adapted: {} }
+
+function stringRecord(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof item === 'string') {
+        out[key] = item
+      }
+    }
+  }
+  return out
+}
+
+export function normalizePilotoScript(raw: unknown): PilotoScript {
+  if (!raw || typeof raw !== 'object') {
+    return { notes: {}, cardIndex: 0, raw: {}, settled: {}, adapted: {} }
+  }
+  const record = raw as { notes?: unknown; cardIndex?: unknown; raw?: unknown; settled?: unknown; adapted?: unknown }
+  const adapted: PilotoScript['adapted'] = {}
+  if (record.adapted && typeof record.adapted === 'object') {
+    for (const [key, item] of Object.entries(record.adapted as Record<string, unknown>)) {
+      const entry = item as { sig?: unknown; text?: unknown } | null
+      if (entry && typeof entry.sig === 'string' && typeof entry.text === 'string') {
+        adapted[key] = { sig: entry.sig, text: entry.text }
+      }
+    }
+  }
+  const cardIndex =
+    typeof record.cardIndex === 'number' && Number.isFinite(record.cardIndex) && record.cardIndex >= 0
+      ? Math.floor(record.cardIndex)
+      : 0
+  return {
+    notes: stringRecord(record.notes),
+    cardIndex,
+    raw: stringRecord(record.raw),
+    settled: stringRecord(record.settled),
+    adapted,
+  }
+}
+
 export interface PilotoDoc {
   id: string
   ownerUid: string
   input: PilotoInput
   content: PilotoAiContent
+  script: PilotoScript
   status: ProposalStatus
   createdAt: Timestamp
   updatedAt: Timestamp

@@ -73,15 +73,15 @@ export const PHASES = {
   traffic: {
     name: 'Tráfego',
     days: '30 dias',
-    summary: 'Verba real, dado real e ajuste constante até o menor custo por lead.',
-    highlights: ['Anúncios no ar em Meta e Google', 'Otimização e novos criativos', 'Relatório final para decidir'],
+    summary: 'Seus anúncios no ar, ajustados sempre pra trazer mais clientes gastando menos.',
+    highlights: ['Anúncios no Instagram, Facebook e Google', 'Ajustes e vídeos novos quando precisar', 'Relatório final: o que funcionou e onde vale investir'],
   },
 }
 
 export const MILESTONES: { day: string; label: string }[] = [
   { day: 'Dia 1', label: 'Início da fundação' },
   { day: 'Dia 16', label: 'Anúncios no ar' },
-  { day: 'Dia 45', label: 'Relatório e decisão' },
+  { day: 'Dia 45', label: 'Relatório do que funcionou' },
 ]
 
 export const FOUNDATION_GROUPS: PilotoContentGroup[] = [

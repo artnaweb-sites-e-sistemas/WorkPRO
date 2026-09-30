@@ -46,7 +46,7 @@ export function SlidePreview({
   const total = slides.length
   const safeIndex = Math.min(index, Math.max(0, total - 1))
   const Slide = slides[safeIndex]
-  const isContinuation = showContinuation && safeIndex === total - 2
+  const isContinuation = showContinuation && safeIndex === total - 1
 
   useEffect(() => {
     if (index > total - 1) {

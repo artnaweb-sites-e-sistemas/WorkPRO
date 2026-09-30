@@ -44,7 +44,7 @@ function ContinuationCard({ plan, accent }: { plan: ContinuationPlan; accent: st
 }
 
 /**
- * Slide de continuidade: fica imediatamente antes do fechamento (próximos passos).
+ * Slide de continuidade: último slide quando "Exibir planos recorrentes" está ligado.
  * Pode ser omitido pelo toggle "Exibir planos recorrentes".
  */
 export function SlideContinuidade({ input, content, accent, index, total }: SlideProps) {

@@ -12,8 +12,8 @@ import {
 } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
 import type { ProposalStatus } from '../types/proposalDoc'
-import type { PilotoAiContent, PilotoDoc, PilotoInput } from '../types/piloto'
-import { normalizePilotoAiContent, normalizePilotoInput } from '../types/piloto'
+import type { PilotoAiContent, PilotoDoc, PilotoInput, PilotoScript } from '../types/piloto'
+import { normalizePilotoAiContent, normalizePilotoInput, normalizePilotoScript } from '../types/piloto'
 
 function requireUserUid(): string {
   const uid = auth.currentUser?.uid
@@ -44,6 +44,7 @@ function docToPiloto(id: string, data: Record<string, unknown>): PilotoDoc {
     ownerUid: data.ownerUid as string,
     input: normalizePilotoInput(data.input),
     content: normalizePilotoAiContent(data.content),
+    script: normalizePilotoScript(data.script),
     status: parseStatus(data.status),
     createdAt: data.createdAt as PilotoDoc['createdAt'],
     updatedAt: data.updatedAt as PilotoDoc['updatedAt'],
@@ -93,6 +94,15 @@ export async function updatePiloto(
   }
 
   await updateDoc(pilotoRef(uid, id), payload)
+}
+
+/** Grava só as anotações do roteiro, sem tocar em input e conteúdo (que o editor salva sozinho). */
+export async function updatePilotoScript(id: string, script: PilotoScript): Promise<void> {
+  const uid = requireUserUid()
+  await updateDoc(pilotoRef(uid, id), {
+    script: normalizePilotoScript(script),
+    updatedAt: serverTimestamp(),
+  })
 }
 
 export async function updatePilotoStatus(id: string, status: ProposalStatus): Promise<void> {
