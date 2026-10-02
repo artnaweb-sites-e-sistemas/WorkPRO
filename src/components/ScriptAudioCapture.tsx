@@ -8,6 +8,18 @@ import {
 
 type Phase = 'idle' | 'recording' | 'processing'
 
+/** Conexão compartilhada entre a sidebar e a janela flutuante. */
+let sharedCapture: {
+  stream: MediaStream
+  release: () => void
+} | null = null
+
+const connectedListeners = new Set<(on: boolean) => void>()
+
+function notifyConnected(on: boolean) {
+  connectedListeners.forEach((listener) => listener(on))
+}
+
 function formatElapsed(ms: number): string {
   const total = Math.floor(ms / 1000)
   const m = Math.floor(total / 60)
@@ -15,9 +27,6 @@ function formatElapsed(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-/**
- * Junta áudio do PC (aba/janela) + microfone num único stream.
- */
 async function mixAudioStreams(streams: MediaStream[]): Promise<{ stream: MediaStream; stop: () => void }> {
   const audioTracks = streams.flatMap((stream) => stream.getAudioTracks())
   if (!audioTracks.length) {
@@ -52,6 +61,7 @@ export function ScriptAudioCapture({
   company,
   leadName,
   onExtracted,
+  compact = false,
 }: {
   captureKeys: string[]
   cardTitle: string
@@ -59,28 +69,31 @@ export function ScriptAudioCapture({
   company: string
   leadName: string
   onExtracted: (notes: Record<string, string>) => void
+  /** Layout mais apertado pra janela flutuante */
+  compact?: boolean
 }) {
   const [phase, setPhase] = useState<Phase>('idle')
-  const [connected, setConnected] = useState(false)
+  const [connected, setConnected] = useState(() => Boolean(sharedCapture?.stream.getAudioTracks().some((t) => t.readyState === 'live')))
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState('')
   const [hint, setHint] = useState('')
 
   const mediaRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
-  /** Stream misturado (call + mic) — fica vivo a reunião inteira. */
-  const liveStreamRef = useRef<MediaStream | null>(null)
-  const releaseStreamRef = useRef<(() => void) | null>(null)
   const startedAt = useRef(0)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const phaseRef = useRef<Phase>('idle')
   phaseRef.current = phase
 
   useEffect(() => {
+    const listener = (on: boolean) => setConnected(on)
+    connectedListeners.add(listener)
+    setConnected(Boolean(sharedCapture?.stream.getAudioTracks().some((t) => t.readyState === 'live')))
     return () => {
+      connectedListeners.delete(listener)
       stopRecorderOnly()
-      disconnectStream()
       if (tickRef.current) clearInterval(tickRef.current)
+      // Não desconecta o áudio no unmount — a outra UI (sidebar/float) pode continuar usando.
     }
   }, [])
 
@@ -97,15 +110,14 @@ export function ScriptAudioCapture({
   }
 
   function disconnectStream() {
-    releaseStreamRef.current?.()
-    releaseStreamRef.current = null
-    liveStreamRef.current = null
-    setConnected(false)
+    sharedCapture?.release()
+    sharedCapture = null
+    notifyConnected(false)
   }
 
   async function ensureConnected(): Promise<MediaStream | null> {
-    if (liveStreamRef.current?.getAudioTracks().some((track) => track.readyState === 'live')) {
-      return liveStreamRef.current
+    if (sharedCapture?.stream.getAudioTracks().some((track) => track.readyState === 'live')) {
+      return sharedCapture.stream
     }
     disconnectStream()
 
@@ -118,7 +130,6 @@ export function ScriptAudioCapture({
     let micStream: MediaStream | null = null
 
     try {
-      // Uma vez por reunião: aba do Meet/Zoom com “Compartilhar áudio”.
       displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: true,
@@ -139,20 +150,20 @@ export function ScriptAudioCapture({
 
       const sources = micStream ? [displayStream, micStream] : [displayStream]
       const mixed = await mixAudioStreams(sources)
-      liveStreamRef.current = mixed.stream
-      releaseStreamRef.current = mixed.stop
-      setConnected(true)
+      sharedCapture = { stream: mixed.stream, release: mixed.stop }
+      notifyConnected(true)
       setError('')
 
-      const onEnded = () => {
-        if (phaseRef.current === 'recording') {
-          void finishAndExtract()
-        } else {
-          disconnectStream()
-          setHint('Áudio da call desconectado. Conecte de novo quando for anotar.')
-        }
-      }
-      displayStream.getAudioTracks().forEach((track) => track.addEventListener('ended', onEnded))
+      displayStream.getAudioTracks().forEach((track) =>
+        track.addEventListener('ended', () => {
+          if (phaseRef.current === 'recording') {
+            void finishAndExtract()
+          } else {
+            disconnectStream()
+            setHint('Áudio da call desconectado.')
+          }
+        }),
+      )
 
       return mixed.stream
     } catch (err) {
@@ -221,7 +232,6 @@ export function ScriptAudioCapture({
     chunksRef.current = []
     setPhase('idle')
     setElapsed(0)
-    // Mantém o áudio da call conectado.
   }
 
   async function finishAndExtract() {
@@ -255,7 +265,6 @@ export function ScriptAudioCapture({
     })
 
     mediaRef.current = null
-    // NÃO desconecta o stream — próxima gravação reutiliza.
 
     if (!blob || blob.size < 800) {
       setPhase('idle')
@@ -297,13 +306,16 @@ export function ScriptAudioCapture({
 
   if (!captureKeys.length && !connected) return null
 
+  const pad = compact ? 'px-3 py-2.5' : 'px-4 py-3'
+  const gap = compact ? 'mt-2' : 'mt-3'
+
   return (
-    <div className="rounded-lg border border-border px-4 py-3" style={{ backgroundColor: 'var(--rt-paper)' }}>
+    <div className={`rounded-lg border border-border ${pad}`} style={{ backgroundColor: 'var(--rt-paper)' }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">Anotar por áudio</p>
+          <p className={`font-semibold text-foreground ${compact ? 'text-xs' : 'text-sm'}`}>Anotar por áudio</p>
           {connected ? (
-            <p className="mt-0.5 text-xs" style={{ color: 'var(--rt-faint)' }}>
+            <p className="mt-0.5 text-[11px]" style={{ color: 'var(--rt-faint)' }}>
               Call conectada
             </p>
           ) : null}
@@ -316,14 +328,14 @@ export function ScriptAudioCapture({
         ) : null}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className={`${gap} flex flex-wrap gap-2`}>
         {phase === 'idle' ? (
           <>
             {captureKeys.length ? (
               <button
                 type="button"
                 onClick={() => void startRecording()}
-                className="rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground transition-colors hover:brightness-110"
+                className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-foreground transition-colors hover:brightness-110"
               >
                 {connected ? 'Gravar' : 'Conectar e gravar'}
               </button>
@@ -336,7 +348,7 @@ export function ScriptAudioCapture({
                   setHint('')
                   setError('')
                 }}
-                className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
+                className="rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
               >
                 Desconectar
               </button>
@@ -348,14 +360,14 @@ export function ScriptAudioCapture({
             <button
               type="button"
               onClick={() => void finishAndExtract()}
-              className="rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground transition-colors hover:brightness-110"
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-foreground transition-colors hover:brightness-110"
             >
               Enviar e preencher
             </button>
             <button
               type="button"
               onClick={cancelRecording}
-              className="rounded-md border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-2"
+              className="rounded-md border border-border px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-2"
             >
               Cancelar
             </button>
@@ -365,7 +377,7 @@ export function ScriptAudioCapture({
           <button
             type="button"
             disabled
-            className="cursor-wait rounded-md border border-border px-3 py-2 text-sm text-muted-foreground opacity-70"
+            className="cursor-wait rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground opacity-70"
           >
             Processando…
           </button>
@@ -373,11 +385,11 @@ export function ScriptAudioCapture({
       </div>
 
       {error ? (
-        <p className="mt-2 text-sm text-status-error" role="alert">
+        <p className={`${gap} text-sm text-status-error`} role="alert">
           {error}
         </p>
       ) : hint ? (
-        <p className="mt-2 text-sm" style={{ color: 'var(--rt-muted)' }} role="status">
+        <p className={`${gap} text-sm`} style={{ color: 'var(--rt-muted)' }} role="status">
           {hint}
         </p>
       ) : null}

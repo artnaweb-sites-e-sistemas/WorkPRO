@@ -3,6 +3,7 @@ import { AuthProvider } from './context/AuthContext'
 import { ConfirmProvider } from './context/ConfirmContext'
 import { ProtectedRoute } from './routes/ProtectedRoute'
 import { PageTransition } from './components/PageTransition'
+import { DocumentTitle } from './components/DocumentTitle'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import ConversationView from './pages/ConversationView'
@@ -17,6 +18,7 @@ export default function App() {
     <AuthProvider>
       <ConfirmProvider>
         <BrowserRouter>
+          <DocumentTitle />
           <Routes>
             <Route
               path="/login"

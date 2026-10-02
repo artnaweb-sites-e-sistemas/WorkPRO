@@ -947,9 +947,13 @@ export default function PilotoRoteiro() {
           index={index}
           total={cards.length}
           notes={notes}
+          company={(notes.empresa ?? '').trim() || leadName}
+          leadName={(notes.nome ?? '').trim()}
           onPrev={goPrev}
           onNext={goNext}
           onClose={closeFloat}
+          onNoteChange={setNote}
+          onExtracted={applyExtractedNotes}
         />
       ) : null}
     </div>
