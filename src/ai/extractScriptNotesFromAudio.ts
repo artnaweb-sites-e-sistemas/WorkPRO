@@ -3,9 +3,18 @@ import { getGeminiModel } from '../lib/ai'
 import { SCRIPT_CAPTURES } from '../lib/pilotoScript'
 import type { ScriptCapture } from '../lib/pilotoScript'
 
-const SYSTEM_INSTRUCTION = `Você escuta o áudio de uma reunião de vendas (vendedor + dono de um negócio local) e extrai SÓ o que o LEAD/cliente respondeu, para preencher anotações do roteiro.
+const SYSTEM_INSTRUCTION = `Você escuta o áudio de uma reunião de vendas (vendedor + dono de um negócio local).
 
-REGRAS:
+TAREFAS:
+1) Transcreva o que foi dito no áudio (vendedor e lead), em português do Brasil.
+2) Extraia SÓ o que o LEAD/cliente respondeu, para preencher anotações do roteiro.
+
+REGRAS DA TRANSCRIÇÃO (campo transcript):
+- Texto corrido do trecho ouvido. Se der pra distinguir, prefixe "Vendedor:" / "Lead:".
+- Se o áudio estiver inaudível ou vazio, diga isso claramente no transcript.
+- Não invente falas.
+
+REGRAS DOS CAMPOS DO ROTEIRO:
 - Foque na voz/respostas do cliente (dono), não no discurso do vendedor.
 - Preencha apenas os campos pedidos. Se não houver resposta clara para um campo, deixe string vazia.
 - Anotação curta, nas palavras do cliente, pronta para caber no roteiro (sem aspas, sem markdown).
@@ -16,9 +25,17 @@ REGRAS:
 function buildSchema(keys: string[]) {
   return {
     type: SchemaType.OBJECT,
-    properties: Object.fromEntries(keys.map((key) => [key, { type: SchemaType.STRING }])),
-    required: keys,
+    properties: {
+      transcript: { type: SchemaType.STRING },
+      ...Object.fromEntries(keys.map((key) => [key, { type: SchemaType.STRING }])),
+    },
+    required: ['transcript', ...keys],
   }
+}
+
+export type ExtractScriptNotesResult = {
+  notes: Record<string, string>
+  transcript: string
 }
 
 export type ScriptAudioField = {
@@ -61,9 +78,9 @@ export async function extractScriptNotesFromAudio(params: {
   cardGoal: string
   company: string
   leadName: string
-}): Promise<Record<string, string>> {
+}): Promise<ExtractScriptNotesResult> {
   const keys = params.fields.map((field) => field.key)
-  if (!keys.length) return {}
+  if (!keys.length) return { notes: {}, transcript: '' }
 
   const fieldLines = params.fields.map((field) => `- ${field.key} (${field.label}): ${field.hint}`)
   const prompt = [
@@ -73,7 +90,9 @@ export async function extractScriptNotesFromAudio(params: {
     params.company ? `EMPRESA: ${params.company}` : '',
     'CAMPOS PARA PREENCHER (chave → o que anotar):',
     ...fieldLines,
-    'Ouça o áudio e devolva JSON com essas chaves. Vazio se não houver resposta clara do lead.',
+    'Ouça o áudio.',
+    '1) Preencha "transcript" com a transcrição do trecho.',
+    '2) Preencha as chaves dos campos. Vazio se não houver resposta clara do lead.',
   ]
     .filter(Boolean)
     .join('\n')
@@ -96,12 +115,13 @@ export async function extractScriptNotesFromAudio(params: {
   ])
 
   const parsed = JSON.parse(result.response.text()) as Record<string, unknown>
-  const out: Record<string, string> = {}
+  const notes: Record<string, string> = {}
   for (const key of keys) {
     const value = parsed[key]
-    out[key] = typeof value === 'string' ? value.trim() : ''
+    notes[key] = typeof value === 'string' ? value.trim() : ''
   }
-  return out
+  const transcript = typeof parsed.transcript === 'string' ? parsed.transcript.trim() : ''
+  return { notes, transcript }
 }
 
 export function fieldsFromCaptureKeys(keys: string[]): ScriptAudioField[] {

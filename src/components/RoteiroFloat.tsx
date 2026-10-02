@@ -298,6 +298,7 @@ export function RoteiroFloatPortal({
           <div className="space-y-3 border-t pt-3" style={{ borderColor: 'var(--rt-rule)' }}>
             <ScriptAudioCapture
               compact
+              stageKey={`card-${index}`}
               captureKeys={captureKeys}
               cardTitle={card.title}
               cardGoal={card.goal}

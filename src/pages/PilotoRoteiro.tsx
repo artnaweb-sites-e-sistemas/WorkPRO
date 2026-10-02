@@ -786,6 +786,7 @@ export default function PilotoRoteiro() {
 
           <aside className="grid min-w-0 gap-5 lg:sticky lg:top-20">
             <ScriptAudioCapture
+              stageKey={`card-${index}`}
               captureKeys={card.capture ?? []}
               cardTitle={card.title}
               cardGoal={card.goal}
