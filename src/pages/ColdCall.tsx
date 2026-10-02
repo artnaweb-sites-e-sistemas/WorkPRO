@@ -1287,6 +1287,13 @@ function CardTop({ phase, onBack, onForward }: { phase: number; onBack?: () => v
     'flex h-8 w-8 items-center justify-center rounded text-base text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground'
   return (
     <div className="flex min-h-8 flex-wrap items-center gap-x-4 gap-y-1">
+      {onBack || onForward ? (
+        <div className="-ml-2 flex items-center gap-0.5">
+          {onBack ? (
+            <button type="button" onClick={onBack} aria-label="Voltar para a ficha anterior" title="Voltar" className={arrow}>
+              ←
+            </button>
+          ) : null}
       <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]" aria-label="Fases da ligação">
         {PHASES.map((label, index) => (
           <li key={label} className="flex items-center gap-2" aria-current={index === phase ? 'step' : undefined}>
@@ -1304,13 +1311,6 @@ function CardTop({ phase, onBack, onForward }: { phase: number; onBack?: () => v
           </li>
         ))}
       </ol>
-      {onBack || onForward ? (
-        <div className="ml-auto flex items-center gap-0.5">
-          {onBack ? (
-            <button type="button" onClick={onBack} aria-label="Voltar para a ficha anterior" title="Voltar" className={arrow}>
-              ←
-            </button>
-          ) : null}
           {onForward ? (
             <button type="button" onClick={onForward} aria-label="Voltar para onde você estava" title="Avançar" className={arrow}>
               →

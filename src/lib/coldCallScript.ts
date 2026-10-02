@@ -133,7 +133,7 @@ export const CALL_NODES: Record<string, CallNode> = {
     title: 'Quem atendeu',
     goal: 'Descobrir com quem você está falando.',
     say: [
-      '@atendente {saudacao}! Aqui é o {eu}. Com quem eu falo?#Anote o nome. Chamar pelo nome muda o tom da ligação.',
+      '@atendente {saudacao}, com quem eu falo?#Anote o nome. Chamar pelo nome muda o tom da ligação.',
       'Prazer, {atendente}. Quem cuida da {empresa} é você mesmo ou tem um responsável?',
     ],
     capture: ['atendente'],
