@@ -25,6 +25,7 @@ import type { ContinuationPlanId, PilotoPricing } from '../lib/pilotoPricing'
 import { cn } from '../lib/cn'
 import { PilotoPdfDocument, PILOTO_PDF_LAYOUT_REVISION } from '../pdf/PilotoPdfDocument'
 import { getProposalDefaults, saveProposalDefaults } from '../services/proposalDefaults'
+import { getColdCall, updateColdCall } from '../services/coldCalls'
 import { createPiloto, getPiloto, updatePiloto, updatePilotoStatus } from '../services/pilotos'
 import type { PilotoAiContent, PilotoInput, SituationAnswer } from '../types/piloto'
 import {
@@ -498,6 +499,20 @@ export default function NewPiloto() {
     pilotoIdRef.current = id
     setPilotoId(id)
     setSaveState('saved')
+    // Vindo da ligação fria: amarra o piloto à reunião na Agenda.
+    const coldCallId = (location.state as { coldCallId?: string } | null)?.coldCallId
+    if (coldCallId) {
+      void getColdCall(coldCallId)
+        .then((doc) => {
+          if (!doc) return
+          return updateColdCall(coldCallId, {
+            ...doc,
+            notes: { ...doc.notes, pilotoId: id },
+            done: doc.done.includes('piloto') ? doc.done : [...doc.done, 'piloto'],
+          })
+        })
+        .catch((error) => console.error('[NewPiloto] link coldCall', error))
+    }
     navigate(`/piloto/${id}`, { replace: true })
     return id
   }

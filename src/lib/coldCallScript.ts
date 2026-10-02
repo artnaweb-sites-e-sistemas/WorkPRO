@@ -33,7 +33,7 @@ export const CALL_FIELDS: Record<string, CallField> = {
   obs: { label: 'Observações', color: null, hint: 'Anotações livres sobre a ligação', short: false },
   whatsapp: { label: 'WhatsApp do responsável', color: null, hint: '(DDD) número', short: true },
   decisores: { label: 'Quem mais decide', color: 'c8', hint: 'Sócio, gerente…', short: true },
-  reuniao: { label: 'Dia e hora da reunião', color: 'c1', hint: 'Dia e hora combinados', short: true },
+  reuniao: { label: 'Dia e hora da reunião', color: 'c1', hint: 'Escolha no calendário', short: true },
   /* escritos pela IA a partir do nicho; sem nicho, vale o genérico */
   grupo: { label: 'Como chamar o nicho', color: null, hint: '', fallback: 'negócios aqui da região' },
   clientes: { label: 'Clientes', color: null, hint: '', fallback: 'clientes' },
@@ -57,7 +57,7 @@ export const CALL_FIELDS: Record<string, CallField> = {
 }
 
 /** 'barrado': a recepção não passou. Não conta como recusa do dono. */
-export type CallOutcome = 'agendou' | 'retorno' | 'sem-interesse' | 'barrado' | 'nao-atendeu'
+export type CallOutcome = 'agendou' | 'retorno' | 'sem-interesse' | 'barrado' | 'nao-atendeu' | 'deixei-recado'
 
 export const CALL_OUTCOMES: Record<CallOutcome, { label: string; tone: 'good' | 'warn' | 'muted' }> = {
   agendou: { label: 'Agendou', tone: 'good' },
@@ -65,6 +65,7 @@ export const CALL_OUTCOMES: Record<CallOutcome, { label: string; tone: 'good' | 
   'sem-interesse': { label: 'Sem interesse', tone: 'muted' },
   barrado: { label: 'Recepção barrou', tone: 'muted' },
   'nao-atendeu': { label: 'Não atendeu', tone: 'muted' },
+  'deixei-recado': { label: 'Deixei recado', tone: 'warn' },
 }
 
 export type CallStage = 'Preparo' | 'Recepção' | 'Responsável' | 'Agendamento'
@@ -140,6 +141,7 @@ export const CALL_NODES: Record<string, CallNode> = {
     choices: [
       { label: 'É o responsável', to: 'abertura', primary: true, carry: { from: 'atendente', to: 'responsavel' } },
       { label: 'Não é o responsável', to: 'recepcao' },
+      { label: 'Deixei recado', to: 'recado' },
       { label: 'Recepção barrou', to: { outcome: 'barrado' }, danger: true },
     ],
   },
@@ -157,8 +159,23 @@ export const CALL_NODES: Record<string, CallNode> = {
       { label: 'Transferiu', to: 'abertura', primary: true },
       { label: 'Não está ou está ocupado', to: 'recepcao-retorno' },
       { label: 'Pediu pra mandar mensagem', to: 'recepcao-mensagem' },
+      { label: 'Deixei recado', to: 'recado' },
       { label: 'Recepção barrou', to: { outcome: 'barrado' }, danger: true },
     ],
+  },
+  recado: {
+    id: 'recado',
+    stage: 'Recepção',
+    title: 'Deixar recado',
+    goal: 'Deixar nome e motivo curto. Sem vender. Sair com horário pra ligar de novo.',
+    say: [
+      'Sem problema. Pode anotar aí, por favor: é o {eu}, da {agencia}.',
+      'É sobre trazer mais {clientes} pra {empresa} pelo Google e pelo WhatsApp. São dois minutinhos com o responsável.',
+      '@horario Qual o melhor horário pra eu ligar de novo e achar ele?',
+      'Obrigado, {atendente}. Ligo {horario} e digo que deixei recado com você.#Com horário marcado, a próxima ligação abre mais fácil.',
+    ],
+    capture: ['responsavel', 'horario'],
+    choices: [{ label: 'Encerrar: deixei recado', to: { outcome: 'deixei-recado' }, primary: true }],
   },
   'recepcao-retorno': {
     id: 'recepcao-retorno',
@@ -192,8 +209,7 @@ export const CALL_NODES: Record<string, CallNode> = {
     goal: 'Assumir que é uma ligação fria e pedir 30 segundos.',
     say: [
       { text: '{atendente} me passou pra você.', onlyAfter: 'recepcao' },
-      'Oi, {responsavel}! Aqui é o {eu}, da {agencia}.',
-      'Posso te falar em 30 segundos por que liguei, e aí você me diz se faz sentido continuar?#Pausa. Espere o "pode falar". A honestidade baixa a guarda.',
+      '{responsavel}, posso te falar em 30 segundos por que liguei, e aí você me diz se faz sentido continuar?#Pausa. Espere o "pode falar". A honestidade baixa a guarda.',
     ],
     capture: ['responsavel'],
     choices: [
@@ -208,7 +224,7 @@ export const CALL_NODES: Record<string, CallNode> = {
     title: 'Por que liguei',
     goal: 'Uma frase sobre você e uma pergunta fácil sobre ele. Sem perguntar se ele tem problema.',
     say: [
-      'Eu ajudo {grupo} a trazer {clientes} novos pelo Google e pelo WhatsApp.',
+      '{responsavel}, eu ajudo {grupo} a trazer {clientes} novos pelo Google e pelo WhatsApp.',
       '@hoje Me conta uma coisa: hoje, os {clientes} novos chegam mais por indicação, pelo Instagram ou pelo Google?#Pergunta fácil, sem certo ou errado. Deixe ele falar.',
     ],
     capture: ['hoje'],
@@ -241,7 +257,7 @@ export const CALL_NODES: Record<string, CallNode> = {
     say: [
       'Que bom, isso mostra que o trabalho de vocês é bem feito.',
       'Já pensou em melhorar ainda mais as suas vendas?#Pausa. Deixe ele responder: quem está bem quase sempre quer mais.',
-      '@reuniao Posso te mostrar em 20 minutos, por vídeo chamada, o que daria pra ganhar a mais na {empresa}. Se não fizer sentido, você me fala. Tenho disponibilidade para reunião [dia] ou [dia]. qual horário fica melhor para você?#Convite leve, com saída fácil.',
+      '@reuniao Posso te mostrar em 20 minutos, por vídeo chamada, o que daria pra ganhar a mais na {empresa}. Se não fizer sentido, você me fala. Tenho disponibilidade para reunião [dia] ou [dia]. O que acha?#Convite leve, com saída fácil.',
     ],
     capture: ['reuniao'],
     choices: [
@@ -257,7 +273,7 @@ export const CALL_NODES: Record<string, CallNode> = {
     say: [
       'Já pensou em melhorar ainda mais as suas vendas?#Pausa. Com o sim dele, o convite vira resposta ao que ele quer.',
       'O que eu faço é montar um plano de 45 dias pra {empresa}, com o que funciona no seu tipo de negócio. Te mostro em 20 minutos, por vídeo.',
-      '@reuniao Faz sentido a gente marcar? Eu tenho [dia] às [hora] ou [dia] às [hora]. Qual fica melhor?#Duas opções fecham mais que uma pergunta aberta.',
+      '@reuniao Faz sentido a gente marcar? Eu tenho [dia] às [hora] ou [dia] às [hora]. O que acha?#Duas opções fecham mais que uma pergunta aberta.',
     ],
     capture: ['reuniao'],
     choices: [
@@ -287,9 +303,8 @@ export const CALL_NODES: Record<string, CallNode> = {
     goal: 'Sair com um horário marcado.',
     say: [
       '@horario Sem problema. Te ligo quando: hoje no fim da tarde ou amanhã de manhã?',
-      'E qual o melhor WhatsApp pra eu te chamar, se não conseguir falar?',
     ],
-    capture: ['horario', 'whatsapp'],
+    capture: ['horario'],
     choices: [{ label: 'Encerrar e ligar de novo', to: { outcome: 'retorno' }, primary: true }],
   },
   encerrar: {
@@ -313,43 +328,43 @@ export const CALL_NODES: Record<string, CallNode> = {
  */
 export const CALL_RECEPTION_OBJECTIONS: [string, string][] = [
   [
-    '"Do que se trata?"',
+    'Do que se trata?',
     'É um assunto que eu preciso ver direto com o {responsavel}, {atendente}. Coisa de dois minutos. Ele tá por aí?#Não explique. Quanto mais detalhe, mais ela filtra ou te manda pro e-mail. Tom tranquilo, de quem já conhece o caminho.',
   ],
   [
-    '"A gente já tem marketing" / "Já temos agência"',
+    'A gente já tem marketing / Já temos agência',
     'Ah, que bom! E não é pra mexer no que eles fazem. É uma coisa bem específica do atendimento pelo WhatsApp, que normalmente fica de fora do marketing. Se não fizer sentido, o próprio {responsavel} me fala. Consegue me passar pra ele?#Concorde primeiro. Mostre que é outra coisa, não uma disputa com a agência deles.',
   ],
   [
-    '"Quem gostaria?" / "De onde fala?"',
+    'Quem gostaria? / De onde fala?',
     'É o {eu}, da {agencia}. Eu ajudo negócios daqui da região a trazer {clientes} novos. Consegue me passar pra quem cuida disso?',
   ],
   [
-    '"É venda?" / "É propaganda?"',
+    'É venda? / É propaganda?',
     'É uma proposta, sim, por isso quero falar com quem decide. São dois minutinhos. Consegue me passar?#Honestidade aqui abre mais portas que desviar.',
   ],
   [
-    '"Ele não está" / "Está atendendo"',
+    'Ele não está / Está atendendo',
     'Sem problema. Qual o melhor horário pra eu falar com ele? De manhã ou à tarde?#Anote e siga para "Marcar o retorno".',
   ],
   [
-    '"Manda por e-mail" / "Deixa recado"',
+    'Manda por e-mail / Deixa recado',
     'Até mandaria, mas não dá pra resolver por e-mail: depende de duas ou três perguntas rápidas sobre a {empresa}, e por escrito vira um texto genérico que não serve pra ele. Por telefone são dois minutos. Qual o melhor horário pra eu pegar ele aí?#Justifique com o bem dele (não perder tempo com texto genérico) e já peça o horário.',
   ],
   [
-    '"Não dá pra passar a ligação" / "Não posso passar o número dele"',
+    'Não dá pra passar a ligação / Não posso passar o número dele',
     'Sem problema, entendo, {atendente}. Então me ajuda só com o melhor horário pra eu ligar e achar ele aí: de manhã ou à tarde? … Se ainda assim não der: Tranquilo, obrigado pela atenção! Eu tento de novo outro dia. Bom trabalho aí!#Com horário: siga para "Marcar o retorno". Sem horário: encerre com gentileza e marque "Ligar de novo" para tentar outro dia.',
   ],
   [
-    '"Me passa seu contato que ele te liga"',
+    'Me passa seu contato que ele te liga',
     'Claro, anota aí: {eu}, da {agencia}, [seu número]. E pra não deixar isso na sua mão: qual o melhor horário pra eu achar ele? Aí eu mesmo ligo, sem te dar trabalho.#Deixe o contato, mas não espere o retorno: quase nunca vem. Saia com um horário e siga para "Marcar o retorno".',
   ],
   [
-    '"Não temos interesse"',
+    'Não temos interesse',
     'Tranquilo, entendo. Nem é pra decidir nada agora, é só uma ideia rápida pro {responsavel} avaliar. Qual o melhor horário pra eu falar com ele? Se ele não quiser, eu não ligo mais.#"Eu não ligo mais" tira a pressão dela. Se recusar de novo, agradeça e desligue com o botão vermelho.',
   ],
   [
-    '"Como conseguiu esse número?"',
+    'Como conseguiu esse número?',
     'Tá no [Google / Instagram] da {empresa}. Eu procuro negócios da região que dá pra ajudar.#Diga sempre a verdade de onde tirou.',
   ],
 ]
@@ -357,35 +372,35 @@ export const CALL_RECEPTION_OBJECTIONS: [string, string][] = [
 /** Objeções do responsável: aparecem ao lado das fichas dele. Responda com pergunta. */
 export const CALL_OBJECTIONS: [string, string][] = [
   [
-    '"Mas do que se trata?"',
+    'Mas do que se trata?',
     'É sobre trazer mais {clientes} pra {empresa}, pelo Google e pelo WhatsApp. Por isso te pedi 30 segundos: posso te explicar?#Com o sim, siga pra "Por que liguei".',
   ],
   [
-    '"Não tenho interesse."',
+    'Não tenho interesse.',
     'Tranquilo, {responsavel}, sem problema. Obrigado pelo seu tempo, e bom trabalho aí!#Não insista: quem já fechou não reabre por telefone. Desligue com o botão vermelho.',
   ],
   [
-    '"Me manda no WhatsApp."',
-    'Mando sim. Só que o que eu mostro é feito pra {empresa}, não é um material pronto. Por isso os 20 minutos. [dia] ou [dia], qual fica melhor?#Se insistir, pegue o WhatsApp e marque o retorno.',
+    'Me manda no WhatsApp.',
+    'O que eu mostro é feito pra {empresa}, não é um material pronto. Por isso os 20 minutos. O que acha, posso reservar um horário pra eu te apresentar uma proposta?#Se insistir, pegue o WhatsApp e marque o retorno.',
   ],
   [
-    '"Já tenho alguém que faz isso."',
+    'Já tenho alguém que faz isso.',
     'Ah, que bom que já tem alguém cuidando disso. Obrigado pela atenção, {responsavel}, e sucesso aí!#Não insista. Desligue com o botão vermelho.',
   ],
   [
-    '"Quanto custa?"',
-    'Depende do que a {empresa} precisa, por isso eu monto o plano antes. Na conversa eu te mostro o valor exato, sem compromisso.',
+    'Quanto custa?',
+    'Depende do que a {empresa} precisa, por isso eu monto o plano antes. Na conversa eu te mostro o valor exato.',
   ],
   [
-    '"Não tenho tempo."',
-    'Entendo. Por isso são só 20 minutos, por vídeo, de onde você estiver. Fica melhor de manhã ou à tarde?',
+    'Não tenho tempo.',
+    'Entendo. Por isso são só 20 minutos, por vídeo, de onde você estiver. O que acha? Posso reservar um horário pra eu te apresentar uma solução pra atrair mais clientes?',
   ],
   [
-    '"Tá difícil, sem dinheiro agora."',
+    'Tá difícil, sem dinheiro agora.',
     'Faz sentido. É justamente por isso que o plano mostra em 45 dias onde vale colocar dinheiro, e onde não vale. Vale 20 minutos pra você ver?',
   ],
   [
-    '"Como você conseguiu meu número?"',
+    'Como você conseguiu meu número?',
     'Tá no [Google / Instagram] da {empresa}. Eu procuro negócios da região que dá pra ajudar.#Diga sempre a verdade de onde tirou.',
   ],
 ]
@@ -395,7 +410,7 @@ export const CALL_MESSAGES = {
   confirmacao:
     'Oi, {responsavel}! Aqui é o {eu}, da {agencia}. Confirmando nossa conversa: {reuniao}, por vídeo, uns 20 minutos. Vou te mostrar o plano de 45 dias que estou montando pra {empresa}. O link é este: [link]. Até lá!',
   lembrete:
-    'Oi, {responsavel}! Passando pra lembrar da nossa conversa: {reuniao}. O link é o mesmo: [link]. Continua de pé?',
+    'Oi, {responsavel}! Passando pra lembrar da nossa conversa: {reuniao}. Prefira um local tranquilo, com computador ou notebook. O link é o mesmo: [link]. Até lá!',
   retorno:
     'Oi, {responsavel}! Aqui é o {eu}, da {agencia}. Combinei de te ligar {horario}. É rápido: quero te mostrar como trazer mais {clientes} pra {empresa} pelo Google e pelo WhatsApp.',
   contato:
@@ -403,9 +418,14 @@ export const CALL_MESSAGES = {
 } as const
 
 /** Passo a passo depois de marcar. */
-export const AFTER_MEETING_STEPS: { id: string; text: string; message?: keyof typeof CALL_MESSAGES; action?: 'piloto' }[] = [
+export const AFTER_MEETING_STEPS: {
+  id: string
+  text: string
+  message?: keyof typeof CALL_MESSAGES
+  action?: 'piloto' | 'agenda'
+}[] = [
   { id: 'confirmar', text: 'Mandar a confirmação no WhatsApp agora, com o link da chamada.', message: 'confirmacao' },
-  { id: 'agenda', text: 'Colocar na sua agenda, com o link e o WhatsApp dele.' },
+  { id: 'agenda', text: 'Colocar na sua agenda, com o link e o WhatsApp dele.', action: 'agenda' },
   { id: 'piloto', text: 'Criar a apresentação do Piloto 45 para a reunião.', action: 'piloto' },
   { id: 'lembrete', text: 'Um dia antes: mandar o lembrete.', message: 'lembrete' },
   { id: 'roteiro', text: 'Na hora da reunião: abrir o roteiro, ao lado da chamada.' },

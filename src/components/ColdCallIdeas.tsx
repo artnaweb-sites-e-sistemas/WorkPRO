@@ -126,9 +126,6 @@ export function ColdCallIdeas({ onUse }: { onUse: (suggestion: ProspectSuggestio
     <div className="mx-auto mt-8 max-w-6xl px-6">
       <div className="max-w-4xl">
         <h1 className="text-[26px] font-bold leading-tight text-foreground">Onde prospectar</h1>
-        <p className="mt-1 text-[15px]" style={{ color: 'var(--rt-muted)' }}>
-          A IA pesquisa a região e ranqueia os nichos onde é mais fácil falar com o dono e fechar o Piloto 45.
-        </p>
 
         <form onSubmit={(event) => void run(event)} className="mt-6 grid gap-3 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_auto] sm:items-end">
           <label className="grid gap-1.5">

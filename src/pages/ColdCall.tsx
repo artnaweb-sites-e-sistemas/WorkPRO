@@ -17,11 +17,16 @@ import {
 import type { CallChoice, CallLine, CallNode, CallOutcome } from '../lib/coldCallScript'
 import { parseKeyQuestion } from '../lib/pilotoScript'
 import { ColdCallIdeas } from '../components/ColdCallIdeas'
+import { ColdCallCalendar } from '../components/coldCall/ColdCallCalendar'
+import { HistoryFilterMenu } from '../components/coldCall/HistoryFilterMenu'
 import { CallbackPicker } from '../components/CallbackPicker'
 import { NicheCombobox } from '../components/NicheCombobox'
 import type { NicheOption } from '../components/NicheCombobox'
 import type { SavedNiche } from '../services/coldCalls'
+import { listPilotos } from '../services/pilotos'
+import type { PilotoDoc } from '../types/piloto'
 import { daysFromToday, hourOf, isOverdue, shortWhen, shortWhenMs, spokenWhen } from '../lib/callbackTime'
+import { agendaEventTitle } from '../lib/coldCallCalendar'
 import type { ProspectSuggestion } from '../ai/suggestProspecting'
 import { announceColdCallReady, readExtensionLead, syncColdCallsToExtension } from '../lib/coldCallExtension'
 import type { ExtensionLead } from '../lib/coldCallExtension'
@@ -72,12 +77,13 @@ const EMPTY_CALL: ColdCallData = {
 /** Passam de uma ligação para a próxima: normalmente você liga para vários do mesmo nicho. */
 const CARRIED_NOTES = ['nicho', 'cidade', 'nichoSig', 'grupo', 'clientes', 'dor1', 'dor2']
 
-type Mode = 'call' | 'callbacks' | 'history' | 'ideas'
+type Mode = 'call' | 'callbacks' | 'agenda' | 'history' | 'ideas'
 type HistoryFilter = 'todas' | 'pendentes' | CallOutcome
 
 const TABS: { value: Mode; label: string }[] = [
   { value: 'call', label: 'Ligação' },
   { value: 'callbacks', label: 'Retornos' },
+  { value: 'agenda', label: 'Agenda' },
   { value: 'history', label: 'Histórico' },
   { value: 'ideas', label: 'Onde prospectar' },
 ]
@@ -184,7 +190,7 @@ function lineText(line: CallLine): string {
   return typeof line === 'string' ? line : line.text
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, label = 'Copiar mensagem' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
@@ -200,7 +206,7 @@ function CopyButton({ text }: { text: string }) {
       }}
       className="whitespace-nowrap rounded border border-border px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-surface-2"
     >
-      {copied ? 'Copiado' : 'Copiar mensagem'}
+      {copied ? 'Copiado' : label}
     </button>
   )
 }
@@ -303,6 +309,7 @@ export default function ColdCall() {
   /** data da mais antiga já carregada pela paginação */
   const cursorMs = useRef<number | undefined>(undefined)
   const [duplicates, setDuplicates] = useState<ColdCall[]>([])
+  const [pilotos, setPilotos] = useState<PilotoDoc[]>([])
   /** abriu uma ligação existente: não grava só por ter aberto */
   const skipSave = useRef(false)
   /** nichos já resolvidos nesta sessão: nem o Firestore é consultado de novo */
@@ -322,10 +329,11 @@ export default function ColdCall() {
         if (!cancelled) setSavedNiches(list)
       })
       .catch((error) => console.error('[ColdCall] niches', error))
-    Promise.all([listColdCalls(), listCallbacks(), getProposalDefaults()])
-      .then(([page, callbacksList, defaults]) => {
+    Promise.all([listColdCalls(), listCallbacks(), getProposalDefaults(), listPilotos()])
+      .then(([page, callbacksList, defaults, pilotosList]) => {
         if (cancelled) return
         setCalls(mergeCalls(page.items, callbacksList))
+        setPilotos(pilotosList)
         setHasMore(page.hasMore)
         cursorMs.current = page.items[page.items.length - 1]?.startedAtMs
         setSeller({ eu: defaults.professionalName.trim(), agencia: defaults.companyName.trim() })
@@ -490,6 +498,22 @@ export default function ColdCall() {
       .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
   }, [savedNiches, calls])
 
+  const pilotosByCompany = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of pilotos) {
+      const key = companyKeyOf(item.input.leadCompanyName)
+      if (key && !map.has(key)) map.set(key, item.id)
+    }
+    return map
+  }, [pilotos])
+
+  useEffect(() => {
+    if (mode !== 'agenda') return
+    listPilotos()
+      .then(setPilotos)
+      .catch((error) => console.error('[ColdCall] pilotos refresh', error))
+  }, [mode, calls])
+
   function deleteNiche(key: string) {
     setSavedNiches((list) => list.filter((item) => item.key !== key))
     nicheMemory.current.delete(key)
@@ -499,9 +523,16 @@ export default function ColdCall() {
   // O horário do retorno é falado sempre em relação a hoje ("amanhã às 14h"), então é calculado na hora.
   const view = useMemo(() => {
     const horarioAt = call.notes.horarioAt ?? ''
+    const reuniaoAt = call.notes.reuniaoAt ?? ''
     const hour = new Date().getHours()
     const saudacao = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
-    return { ...call.notes, ...seller, saudacao, ...(horarioAt ? { horario: spokenWhen(horarioAt) } : {}) }
+    return {
+      ...call.notes,
+      ...seller,
+      saudacao,
+      ...(horarioAt ? { horario: spokenWhen(horarioAt) } : {}),
+      ...(reuniaoAt ? { reuniao: spokenWhen(reuniaoAt) } : {}),
+    }
   }, [call.notes, seller])
   const node: CallNode = CALL_NODES[call.nodeId] ?? CALL_NODES[CALL_START]
   const owner = reachedOwner(call)
@@ -511,7 +542,7 @@ export default function ColdCall() {
     ? [
         ...node.choices.filter((choice) => !choice.danger),
         // Tinha horário combinado (estava em "Ligar de novo"): continua lá, com mais uma tentativa.
-        { label: 'Não atendeu', to: { outcome: redialFrom === 'retorno' || (call.notes.horarioAt ?? call.notes.horario ?? '').trim() ? 'retorno' : 'nao-atendeu' } },
+        { label: 'Não atendeu', to: { outcome: redialFrom === 'retorno' || redialFrom === 'deixei-recado' || (call.notes.horarioAt ?? call.notes.horario ?? '').trim() ? 'retorno' : 'nao-atendeu' } },
         ...node.choices.filter((choice) => choice.danger),
       ]
     : node.choices
@@ -528,7 +559,7 @@ export default function ColdCall() {
   }
   // Retornos: o horário mais próximo (ou atrasado) primeiro; sem horário vai para o fim.
   const allCallbacks = calls
-    .filter((item) => item.outcome === 'retorno')
+    .filter((item) => item.outcome === 'retorno' || item.outcome === 'deixei-recado')
     .sort((a, b) => (a.notes.horarioAt || '9999').localeCompare(b.notes.horarioAt || '9999'))
   /** na lateral: sem a ligação aberta agora */
   const callbacks = allCallbacks.filter((item) => item.id !== callId)
@@ -575,6 +606,18 @@ export default function ColdCall() {
     setCall((current) => ({
       ...current,
       notes: { ...current.notes, horarioAt: value, horario: value ? spokenWhen(value) : '' },
+    }))
+  }
+
+  /** Horário estruturado da reunião: alimenta a Agenda e a fala {reuniao}. */
+  function setReuniaoAt(value: string) {
+    setCall((current) => ({
+      ...current,
+      notes: {
+        ...current.notes,
+        reuniaoAt: value,
+        reuniao: value ? spokenWhen(value) : current.notes.reuniao ?? '',
+      },
     }))
   }
 
@@ -802,13 +845,6 @@ export default function ColdCall() {
     else openCall(item)
   }
 
-  /** Do cabeçalho, em qualquer aba: grava a atual (se começou) e abre o preparo com o cursor na empresa. */
-  function startNewCall() {
-    if (call.nodeId !== CALL_START || call.outcome !== null || callId !== null) nextCall()
-    setMode('call')
-    requestAnimationFrame(() => document.getElementById('cc-empresa')?.focus())
-  }
-
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -842,7 +878,7 @@ export default function ColdCall() {
       return at !== '' && new Date(at).getTime() <= Date.now() + DUE_SOON_MS
     }) ?? null
   const fieldClass =
-    'w-full rounded-md border border-border bg-surface-2 px-3 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none'
+    'box-border w-full max-w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none'
 
   const nicheStatus = (
     <p className="text-xs" style={{ color: 'var(--rt-faint)' }}>
@@ -884,10 +920,12 @@ export default function ColdCall() {
         />
       )
     } else if (key === 'horario') {
-      control = <CallbackPicker id={fieldId} value={call.notes.horarioAt ?? ''} onChange={setCallback} />
+      control = <CallbackPicker id={fieldId} value={call.notes.horarioAt ?? ''} onChange={setCallback} compact />
+    } else if (key === 'reuniao') {
+      control = <CallbackPicker id={fieldId} value={call.notes.reuniaoAt ?? ''} onChange={setReuniaoAt} compact />
     } else if (key === 'telefone') {
       control = (
-        <div className="flex gap-2">
+        <div className="flex min-w-0 gap-2">
           <input
             id={fieldId}
             type="tel"
@@ -925,7 +963,7 @@ export default function ColdCall() {
       )
     }
     return (
-      <div key={key} className="grid content-start gap-1.5">
+      <div key={key} className="grid min-w-0 content-start gap-1.5">
         <label htmlFor={fieldId} className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
           {field.color ? <span className={`${field.color} h-3 w-3 rounded-sm`} aria-hidden /> : null}
           {field.label}
@@ -953,7 +991,9 @@ export default function ColdCall() {
               aria-label="Voltar para o início"
               className="-ml-2 flex h-8 w-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
             >
-              ←
+              <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </Link>
             <p className="whitespace-nowrap text-base font-bold text-foreground">Cold call</p>
           </div>
@@ -979,6 +1019,9 @@ export default function ColdCall() {
                       {allCallbacks.length}
                     </span>
                   ) : null}
+                  {tab.value === 'agenda' && stats.booked ? (
+                    <span className="rounded px-1.5 text-xs font-normal tabular-nums c4">{stats.booked}</span>
+                  ) : null}
                 </button>
               )
             })}
@@ -998,16 +1041,6 @@ export default function ColdCall() {
               </strong>{' '}
               {stats.booked === 1 ? 'reunião' : 'reuniões'}
             </p>
-            <button
-              type="button"
-              onClick={startNewCall}
-              className="flex items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-2"
-            >
-              <span aria-hidden className="text-base leading-none">
-                +
-              </span>
-              Nova ligação
-            </button>
           </div>
         </div>
       </header>
@@ -1023,6 +1056,16 @@ export default function ColdCall() {
           hasMore={hasMore}
           loadingMore={loadingMore}
           onLoadMore={() => void loadMore()}
+        />
+      ) : mode === 'agenda' ? (
+        <ColdCallCalendar
+          calls={calls}
+          pilotosByCompany={pilotosByCompany}
+          onOpenCall={(item) => {
+            openFromList(item)
+            setMode('call')
+          }}
+          onOpenPresentation={(pilotoId) => navigate(`/piloto/${pilotoId}/apresentar`)}
         />
       ) : mode === 'callbacks' ? (
         <CallbackAgenda callbacks={allCallbacks} retries={retries} onOpen={openFromList} onResume={resumeFromList} />
@@ -1053,6 +1096,7 @@ export default function ColdCall() {
                 onCreatePiloto={() =>
                   navigate('/piloto', {
                     state: {
+                      ...(callId ? { coldCallId: callId } : {}),
                       prefill: {
                         leadCompanyName: company,
                         leadNiche: (call.notes.nicho ?? '').trim(),
@@ -1168,16 +1212,11 @@ export default function ColdCall() {
                 ) : null}
 
                 <div className="mt-7 border-t pt-5" style={{ borderColor: 'var(--rt-rule)' }}>
-                  <p
-                    className={`mb-3 text-sm${missingCompany ? ' text-status-error' : ''}`}
-                    style={missingCompany ? undefined : { color: 'var(--rt-muted)' }}
-                  >
-                    {missingCompany
-                      ? 'Falta o nome da empresa: é por ele que você acha a ligação depois.'
-                      : atPrep
-                        ? 'Ligue e marque como foi. Daqui pra frente, tudo é salvo sozinho.'
-                        : 'O que aconteceu?'}
-                  </p>
+                  {missingCompany ? (
+                    <p className="mb-3 text-sm text-status-error">
+                      Falta o nome da empresa: é por ele que você acha a ligação depois.
+                    </p>
+                  ) : null}
                   <div className="flex flex-wrap gap-2.5">
                     {choices.map((choice) => (
                       <button
@@ -1204,16 +1243,16 @@ export default function ColdCall() {
               </article>
             )}
 
-            <aside className="grid w-full min-w-0 gap-8 overflow-hidden lg:sticky lg:top-20">
+            <aside className="grid w-full min-w-0 gap-8 lg:sticky lg:top-20">
               {!call.outcome && !atPrep && node.capture?.length ? (
-                <section>
+                <section className="min-w-0">
                   <SectionLabel>Anote</SectionLabel>
-                  <div className="grid gap-4">{node.capture.map(renderField)}</div>
+                  <div className="grid min-w-0 gap-4">{node.capture.map(renderField)}</div>
                 </section>
               ) : null}
 
               {!call.outcome && objections ? (
-                <section>
+                <section className="min-w-0">
                   <SectionLabel count={objections.length}>{owner ? 'Se ele disser' : 'Se a recepção disser'}</SectionLabel>
                   <ul>
                     {objections.map(([said, reply], objectionIndex) => {
@@ -1244,7 +1283,7 @@ export default function ColdCall() {
               ) : null}
 
               {started || callId ? (
-                <section>
+                <section className="min-w-0">
                   <SectionLabel htmlFor="cc-obs">Observações</SectionLabel>
                   <textarea
                     id="cc-obs"
@@ -1254,6 +1293,13 @@ export default function ColdCall() {
                     onChange={(event) => setNote('obs', event.target.value)}
                     className={`${fieldClass} resize-y`}
                   />
+                </section>
+              ) : null}
+
+              {call.outcome === 'agendou' ? (
+                <section className="min-w-0">
+                  <SectionLabel htmlFor="cc-reuniao-at">Horário na Agenda</SectionLabel>
+                  <CallbackPicker id="cc-reuniao-at" value={call.notes.reuniaoAt ?? ''} onChange={setReuniaoAt} compact />
                 </section>
               ) : null}
 
@@ -1281,20 +1327,34 @@ const PHASES = ['Preparo', 'Recepção', 'Responsável', 'Agendamento', 'Resulta
 /** Ordem do preparo: quem e o número primeiro; nicho e cidade costumam vir da ligação anterior. */
 const PREP_FIELDS = ['empresa', 'telefone', 'nicho', 'cidade']
 
-/** Topo do cartão: as fases à esquerda, sempre no mesmo lugar; as setas à direita. */
+/** Topo do cartão: navegação à esquerda; fases à direita. */
 function CardTop({ phase, onBack, onForward }: { phase: number; onBack?: () => void; onForward?: () => void }) {
-  const arrow =
-    'flex h-8 w-8 items-center justify-center rounded text-base text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground'
+  const navBtn =
+    'flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground disabled:pointer-events-none disabled:opacity-30'
   return (
-    <div className="flex min-h-8 flex-wrap items-center gap-x-4 gap-y-1">
+    <div className="flex min-h-8 flex-wrap items-center gap-x-8 gap-y-2">
       {onBack || onForward ? (
-        <div className="-ml-2 flex items-center gap-0.5">
-          {onBack ? (
-            <button type="button" onClick={onBack} aria-label="Voltar para a ficha anterior" title="Voltar" className={arrow}>
-              ←
-            </button>
-          ) : null}
-      <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]" aria-label="Fases da ligação">
+        <div className="-ml-1 flex shrink-0 overflow-hidden rounded-md border border-border bg-surface">
+          <button type="button" onClick={onBack} disabled={!onBack} aria-label="Voltar para a ficha anterior" title="Voltar" className={navBtn}>
+            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden>
+              <path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={onForward}
+            disabled={!onForward}
+            aria-label="Voltar para onde você estava"
+            title="Avançar"
+            className={`${navBtn} border-l border-border`}
+          >
+            <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden>
+              <path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+      ) : null}
+      <ol className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-[13px]" aria-label="Fases da ligação">
         {PHASES.map((label, index) => (
           <li key={label} className="flex items-center gap-2" aria-current={index === phase ? 'step' : undefined}>
             {index ? (
@@ -1311,13 +1371,6 @@ function CardTop({ phase, onBack, onForward }: { phase: number; onBack?: () => v
           </li>
         ))}
       </ol>
-          {onForward ? (
-            <button type="button" onClick={onForward} aria-label="Voltar para onde você estava" title="Avançar" className={arrow}>
-              →
-            </button>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -1672,10 +1725,7 @@ function CallbackAgenda({
 
   return (
     <div className="mx-auto mt-8 max-w-6xl px-6">
-      <ViewHeading
-        title="Retornos"
-        text="Na ordem do horário. Ligar abre a ligação em “Quem atendeu”, com tudo o que já foi anotado."
-      />
+      <ViewHeading title="Retornos" />
 
       {groups.length ? (
         groups.map((group) => {
@@ -1788,6 +1838,7 @@ function OutcomeCard({
   const info = CALL_OUTCOMES[outcome]
   const hasWhatsapp = Boolean((notes.whatsapp ?? '').trim())
   const due = dueCallback ? callbackWhen(dueCallback) : null
+  const agendaTitle = agendaEventTitle(notes)
 
   const summary: Record<CallOutcome, ReactNode> = {
     agendou: <>Reunião com {renderFilled('{responsavel}', notes)}: {renderFilled('{reuniao}', notes)}. Agora é garantir que ela aconteça.</>,
@@ -1799,6 +1850,11 @@ function OutcomeCard({
     ),
     'sem-interesse': <>Sem insistir. Porta aberta vale mais que uma ligação forçada.</>,
     barrado: <>A recepção não passou. Não conta como recusa do dono: vale tentar de novo daqui a um tempo, em outro horário.</>,
+    'deixei-recado': (
+      <>
+        Recado deixado com a recepção. Ligar de novo {renderFilled('{horario}', notes)}. Fica na aba Retornos.
+      </>
+    ),
     'nao-atendeu':
       attempts >= RETRY_MAX ? (
         <>Foram {attempts} tentativas sem resposta. Deixe essa de lado por umas semanas.</>
@@ -1821,7 +1877,7 @@ function OutcomeCard({
       </h1>
       <p className="mt-2 text-[17px] leading-relaxed text-foreground">{summary[outcome]}</p>
 
-      {outcome === 'retorno' ? (
+      {outcome === 'retorno' || outcome === 'deixei-recado' ? (
         <div className="mt-6 grid max-w-md gap-1.5">
           <label htmlFor="cc-retorno" className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
             <span className="c5 h-3 w-3 rounded-sm" aria-hidden />
@@ -1856,6 +1912,22 @@ function OutcomeCard({
                     <MessageBlock template={CALL_MESSAGES[step.message]} notes={notes} />
                   </div>
                 ) : null}
+                {step.action === 'agenda' && !checked ? (
+                  <div className="mt-2 grid gap-2 pl-7">
+                    <p
+                      className="border-l-2 pl-3 text-sm leading-relaxed"
+                      style={{ borderColor: 'var(--rt-rule)', color: 'var(--rt-muted)' }}
+                    >
+                      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--rt-faint)' }}>
+                        Título padrão da agenda
+                      </span>
+                      <span className="text-foreground">{agendaTitle}</span>
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <CopyButton text={agendaTitle} label="Copiar título" />
+                    </div>
+                  </div>
+                ) : null}
                 {step.action === 'piloto' && !checked ? (
                   <div className="mt-2 pl-7">
                     <button
@@ -1864,7 +1936,7 @@ function OutcomeCard({
                         onToggle(step.id)
                         onCreatePiloto()
                       }}
-                      className="whitespace-nowrap rounded border border-border px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-surface-2"
+                      className="whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:brightness-110"
                     >
                       Criar apresentação
                     </button>
@@ -1876,7 +1948,7 @@ function OutcomeCard({
         </ol>
       ) : null}
 
-      {outcome === 'retorno' && hasWhatsapp ? (
+      {(outcome === 'retorno' || outcome === 'deixei-recado') && hasWhatsapp ? (
         <div className="mt-6">
           <p className="text-sm" style={{ color: 'var(--rt-muted)' }}>
             Mande agora, pra ele esperar a sua ligação:
@@ -1943,6 +2015,7 @@ const HISTORY_FILTERS: { value: HistoryFilter; label: string }[] = [
   { value: 'todas', label: 'Todos os resultados' },
   { value: 'agendou', label: 'Agendou' },
   { value: 'retorno', label: 'Ligar de novo' },
+  { value: 'deixei-recado', label: 'Deixei recado' },
   { value: 'nao-atendeu', label: 'Não atendeu' },
   { value: 'sem-interesse', label: 'Sem interesse' },
   { value: 'barrado', label: 'Recepção barrou' },
@@ -2119,19 +2192,16 @@ function History({
           aria-label="Buscar ligações"
           className="min-w-0 flex-1 basis-64 rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none sm:max-w-md"
         />
-        <select
+        <HistoryFilterMenu
           value={filter}
-          onChange={(event) => onFilter(event.target.value as HistoryFilter)}
           aria-label="Filtrar por resultado"
-          className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none"
-          style={{ colorScheme: 'dark' }}
-        >
-          {HISTORY_FILTERS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label} ({counts[option.value]})
-            </option>
-          ))}
-        </select>
+          onChange={onFilter}
+          options={HISTORY_FILTERS.map((option) => ({
+            value: option.value,
+            label: option.label,
+            count: counts[option.value],
+          }))}
+        />
         {filtering ? (
           <button
             type="button"
@@ -2166,7 +2236,7 @@ function History({
                   .map((value) => (value ?? '').trim())
                   .filter(Boolean)
                   .join(' · ')
-                const callbackAt = item.outcome === 'retorno' ? item.notes.horarioAt ?? '' : ''
+                const callbackAt = item.outcome === 'retorno' || item.outcome === 'deixei-recado' ? item.notes.horarioAt ?? '' : ''
                 const overdue = callbackAt ? isOverdue(callbackAt) : false
                 return (
                   <li key={item.id} className="border-b" style={{ borderColor: 'var(--rt-rule)' }}>

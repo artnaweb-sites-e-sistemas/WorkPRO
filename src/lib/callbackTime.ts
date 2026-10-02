@@ -75,6 +75,21 @@ function toInput(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+/** Valor no formato do input datetime-local (hora local). */
+export function toLocalDateTimeInput(date: Date): string {
+  return toInput(date)
+}
+
+/** Exibição BR: "02/10/2026 · 14h30". */
+export function displayWhen(value: string): string {
+  const date = parse(value)
+  if (!date) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const day = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`
+  const hour = hourLabel(date)
+  return `${day} · ${hour}`
+}
+
 /** Atalhos: hoje no fim da tarde (se ainda der), amanhã de manhã e amanhã à tarde. */
 export function quickSlots(now = new Date()): { label: string; value: string }[] {
   const at = (days: number, hour: number) => {

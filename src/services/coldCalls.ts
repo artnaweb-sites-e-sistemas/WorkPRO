@@ -63,6 +63,13 @@ export async function updateColdCall(id: string, data: ColdCallData): Promise<vo
   })
 }
 
+export async function getColdCall(id: string): Promise<ColdCall | null> {
+  const uid = requireUserUid()
+  const snapshot = await getDoc(doc(db, 'users', uid, 'coldCalls', id))
+  if (!snapshot.exists()) return null
+  return toCall(snapshot.id, snapshot.data())
+}
+
 export const COLD_CALL_PAGE = 50
 
 /** Uma página do histórico, da mais recente para a mais antiga. */
