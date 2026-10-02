@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Spinner } from '../components/ui'
 import { SCRIPT_THEME_CSS } from '../components/scriptTheme'
+import { ScriptAudioCapture } from '../components/ScriptAudioCapture'
 import { brl } from '../components/piloto/deck'
 import {
   DEFAULT_INSTALLMENT_FEE_RATE,
@@ -103,14 +104,12 @@ function Card({
   index,
   total,
   notes,
-  objections,
   renderLine,
 }: {
   card: ScriptCard
   index: number
   total: number
   notes: Record<string, string>
-  objections: [string, string][]
   renderLine: RenderLine
 }) {
   return (
@@ -214,20 +213,9 @@ function Card({
       ) : null}
 
       {card.objections ? (
-        <div className="overflow-x-auto">
-          <table className="w-full text-[16px]">
-            <tbody>
-              {objections.map(([said, reply]) => (
-                <tr key={said} className="border-t" style={{ borderColor: 'var(--rt-rule)' }}>
-                  <td className="w-[34%] py-3 pr-4 align-top font-semibold text-foreground">{said}</td>
-                  <td className="py-3 align-top text-foreground">
-                    <Line text={reply} notes={notes} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <p className="text-[17px] leading-relaxed" style={{ color: 'var(--rt-muted)' }}>
+          Se ele travar no preço ou no fechamento, use as respostas ao lado.
+        </p>
       ) : null}
 
       {card.branch ? (
@@ -281,6 +269,7 @@ export default function PilotoRoteiro() {
   const [adapting, setAdapting] = useState<string[]>([])
   /** falas em que ele preferiu a genérica (só nesta sessão) */
   const [preferGeneric, setPreferGeneric] = useState<string[]>([])
+  const [openObjection, setOpenObjection] = useState<number | null>(null)
   const adaptInFlight = useRef(new Set<string>())
   /** chamadas em andamento (campo + texto), para o blur e o "Próxima" não pedirem a mesma correção duas vezes */
   const inFlight = useRef(new Set<string>())
@@ -316,6 +305,11 @@ export default function PilotoRoteiro() {
   const index = Math.min(script.cardIndex, cards.length - 1)
   const card = cards[index]
   const notes = script.notes
+  const showObjections = card.part === 2
+
+  useEffect(() => {
+    setOpenObjection(null)
+  }, [index])
 
   useEffect(() => {
     if (!id) {
@@ -604,6 +598,19 @@ export default function PilotoRoteiro() {
     setScript((current) => ({ ...current, notes: { ...current.notes, [key]: value } }))
   }
 
+  function applyExtractedNotes(extracted: Record<string, string>) {
+    setScript((current) => {
+      const notes = { ...current.notes }
+      for (const [key, value] of Object.entries(extracted)) {
+        const trimmed = value.trim()
+        if (!trimmed) continue
+        if (!(card.capture ?? []).includes(key)) continue
+        notes[key] = trimmed
+      }
+      return { ...current, notes }
+    })
+  }
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const target = event.target as HTMLElement
@@ -733,11 +740,19 @@ export default function PilotoRoteiro() {
         </nav>
 
         <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
-          <Card card={card} index={index} total={cards.length} notes={notes} objections={objections} renderLine={renderLine} />
+          <Card card={card} index={index} total={cards.length} notes={notes} renderLine={renderLine} />
 
           <aside className="grid min-w-0 gap-5 lg:sticky lg:top-20">
             {card.capture?.length ? (
               <div className="grid gap-3.5">
+                <ScriptAudioCapture
+                  captureKeys={card.capture}
+                  cardTitle={card.title}
+                  cardGoal={card.goal}
+                  company={(notes.empresa ?? '').trim() || leadName}
+                  leadName={(notes.nome ?? '').trim()}
+                  onExtracted={applyExtractedNotes}
+                />
                 <p className="text-sm" style={{ color: 'var(--rt-muted)' }}>
                   Anote o que ele disser
                 </p>
@@ -788,6 +803,42 @@ export default function PilotoRoteiro() {
                   )
                 })}
               </div>
+            ) : null}
+
+            {showObjections ? (
+              <section className="min-w-0">
+                <p className="mb-1 flex items-baseline gap-2 text-sm font-semibold text-foreground">
+                  Se ele disser
+                  <span className="tabular-nums font-normal" style={{ color: 'var(--rt-faint)' }}>
+                    {objections.length}
+                  </span>
+                </p>
+                <ul>
+                  {objections.map(([said, reply], objectionIndex) => {
+                    const open = openObjection === objectionIndex
+                    return (
+                      <li key={said} className="border-t py-2.5 first:border-t-0" style={{ borderColor: 'var(--rt-rule)' }}>
+                        <button
+                          type="button"
+                          aria-expanded={open}
+                          onClick={() => setOpenObjection(open ? null : objectionIndex)}
+                          className="flex w-full min-w-0 items-center justify-between gap-3 text-left text-[15px] font-semibold text-foreground transition-colors hover:text-accent"
+                        >
+                          <span className="min-w-0 flex-1 truncate">{said}</span>
+                          <span aria-hidden className="shrink-0" style={{ color: 'var(--rt-faint)' }}>
+                            {open ? '−' : '+'}
+                          </span>
+                        </button>
+                        {open ? (
+                          <p className="mt-2 text-[16px] leading-relaxed text-foreground">
+                            <Line text={reply} notes={notes} />
+                          </p>
+                        ) : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
             ) : null}
 
             <div className="rounded-lg px-5 py-4" style={{ backgroundColor: 'var(--rt-paper)' }}>

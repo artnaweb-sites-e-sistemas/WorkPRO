@@ -118,12 +118,12 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
         'Você me ouve bem?',
         ...(hasDeal
           ? [
-              'Hoje eu quero entender o seu momento e, se fizer sentido, te mostrar um plano. No final tem uma condição que só vale pra quem decide aqui na reunião. Combinado?#Espere o "combinado". No preço, ele já sabe a regra.',
+              'O objetivo desta reunião é entender melhor o seu momento e, se fizer sentido, te mostrar um plano. No final tem uma condição que só vale para quem decide aqui na reunião. Combinado?#Espere o "combinado". No preço, ele já sabe a regra.',
             ]
           : []),
         'Pelo que a gente conversou, você quer trazer mais clientes pela internet, com mais constância. É isso mesmo?',
         '@obj E qual é a intenção por trás? Encher horário vago, parar de depender de indicação ou crescer?',
-        'Me conta um pouco mais: como seria isso na prática pra você?#Pergunta pra ganhar tempo enquanto você anota.',
+        'E na prática, o que mais te atrapalha a chegar nisso hoje?#Pergunta aberta: deixe ele falar. Anote dor e consequência.',
       ],
       expect: 'O objetivo e o porquê.',
       capture: ['nome', 'empresa', 'obj'],
@@ -214,7 +214,6 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       goal: 'As palavras dele viram as palavras da oferta.',
       say: [
         '@crit Na sua opinião, o que um trabalho desses precisa ter pra valer a pena pra você?',
-        'Por que isso é importante pra você?#Pergunta pra ganhar tempo enquanto você anota.',
         'Só pra ficar claro: você quer {crit}, é isso?',
       ],
       expect: '"Ver resultado em número", "não ter que cuidar de tudo", "alguém que responda rápido".',
@@ -278,10 +277,10 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       title: 'Resumo',
       goal: 'Ele confirma. Só então você abre a tela.',
       say: [
-        'Perfeito. Pelo que você me contou, dá pra te ajudar, sim.',
+        'Perfeito. Pelo que você me contou, eu consigo te ajudar.',
         'Você quer {obj}. Hoje os clientes vêm de {hoje}, e {dor}. E o que falta é {falta}.',
         'Se continuar assim, {custo}. Você até comentou que {estopim}. É isso?',
-        'Se estiver ok, eu montei um plano pra {empresa}. Vou compartilhar a tela.#Só agora abra o slide 1.',
+        'Se estiver ok, eu montei um plano pra {empresa} e quero compartilhar a tela pra te apresentar. Tudo bem?#Só agora abra o slide 1.',
       ],
       expect: '"É isso mesmo."',
       adapt: [
@@ -423,14 +422,14 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
 
 export const buildScriptObjections = (prices: ScriptPrices): [string, string][] => [
   [
-    '"Vou pensar."',
+    'Vou pensar.',
     prices.savings
       ? `Claro. Pensar em qual parte: o plano ou o investimento? … Só pra ser transparente: a condição de ${prices.deal} vale até o fim da nossa conversa. Depois volta pros ${prices.list}. Não é pressão, é a regra que eu uso com todo mundo.#Resolva a dúvida antes de falar do prazo.`
       : 'Claro. Pensar em qual parte: o plano ou o investimento?',
   ],
-  ['"Tá caro."', 'Caro comparado com o quê? Quanto vale um cliente novo pra você? E quantos somem no WhatsApp?'],
-  ['"Falar com sócio / esposa."', 'Faz sentido. Se dependesse só de você, fechava hoje? Então marcamos 15 minutos com os dois essa semana.'],
-  ['"E se não der resultado?"', 'O que seria resultado pra você em 45 dias?#Não prometa número. No dia 45 ele sabe o custo de cada canal.'],
-  ['"Só quero o Meta."', 'Dá pra começar por um. Só que aí você descobre se aquele funciona, não qual é o melhor. Você disse que quer {crit}.'],
-  ['"Já tentei agência."', 'O que faltou naquela vez?#Ligue ao passo que resolve: relatório, atendimento ou estrutura.'],
+  ['Tá caro.', 'Caro comparado com o quê? Quanto vale um cliente novo pra você? E quantos somem no WhatsApp?'],
+  ['Falar com sócio / esposa.', 'Faz sentido. Se dependesse só de você, fechava hoje? Então marcamos 15 minutos com os dois essa semana.'],
+  ['E se não der resultado?', 'O que seria resultado pra você em 45 dias?#Não prometa número. No dia 45 ele sabe o custo de cada canal.'],
+  ['Só quero o Meta.', 'Dá pra começar por um. Só que aí você descobre se aquele funciona, não qual é o melhor. Você disse que quer {crit}.'],
+  ['Já tentei agência.', 'O que faltou naquela vez?#Ligue ao passo que resolve: relatório, atendimento ou estrutura.'],
 ]
