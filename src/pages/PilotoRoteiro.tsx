@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Spinner } from '../components/ui'
 import { SCRIPT_THEME_CSS } from '../components/scriptTheme'
 import { ScriptAudioCapture } from '../components/ScriptAudioCapture'
+import { openRoteiroFloatWindow, RoteiroFloatPortal } from '../components/RoteiroFloat'
 import { brl } from '../components/piloto/deck'
 import {
   DEFAULT_INSTALLMENT_FEE_RATE,
@@ -270,6 +271,7 @@ export default function PilotoRoteiro() {
   /** falas em que ele preferiu a genérica (só nesta sessão) */
   const [preferGeneric, setPreferGeneric] = useState<string[]>([])
   const [openObjection, setOpenObjection] = useState<number | null>(null)
+  const [floatHost, setFloatHost] = useState<Window | null>(null)
   const adaptInFlight = useRef(new Set<string>())
   /** chamadas em andamento (campo + texto), para o blur e o "Próxima" não pedirem a mesma correção duas vezes */
   const inFlight = useRef(new Set<string>())
@@ -594,6 +596,52 @@ export default function PilotoRoteiro() {
     window.scrollTo({ top: 0 })
   }
 
+  const goPrev = useCallback(() => {
+    setScript((current) => {
+      const next = Math.max(0, current.cardIndex - 1)
+      return next === current.cardIndex ? current : { ...current, cardIndex: next }
+    })
+  }, [])
+
+  const goNext = useCallback(() => {
+    setScript((current) => {
+      const max = cards.length - 1
+      const next = Math.min(max, current.cardIndex + 1)
+      return next === current.cardIndex ? current : { ...current, cardIndex: next }
+    })
+  }, [cards.length])
+
+  const closeFloat = useCallback(() => {
+    try {
+      floatHost?.close()
+    } catch {
+      /* ignore */
+    }
+    setFloatHost(null)
+  }, [floatHost])
+
+  async function openFloat() {
+    if (floatHost && !floatHost.closed) {
+      floatHost.focus()
+      return
+    }
+    const host = await openRoteiroFloatWindow()
+    if (!host) {
+      window.alert('Não deu pra abrir a janela. Permita pop-ups neste site (Chrome/Edge).')
+      return
+    }
+    setFloatHost(host)
+    host.addEventListener('pagehide', () => setFloatHost(null))
+  }
+
+  useEffect(() => {
+    if (!floatHost) return
+    const timer = window.setInterval(() => {
+      if (floatHost.closed) setFloatHost(null)
+    }, 800)
+    return () => window.clearInterval(timer)
+  }, [floatHost])
+
   function setNote(key: string, value: string) {
     setScript((current) => ({ ...current, notes: { ...current.notes, [key]: value } }))
   }
@@ -670,6 +718,18 @@ export default function PilotoRoteiro() {
             Roteiro <span className="font-medium text-muted-foreground">· {leadName || 'Piloto 45'}</span>
           </p>
           <span className="flex-1" />
+          <button
+            type="button"
+            onClick={() => void openFloat()}
+            className={`rounded border px-2.5 py-1 text-xs transition-colors ${
+              floatHost && !floatHost.closed
+                ? 'border-accent bg-accent/15 text-foreground'
+                : 'border-border text-foreground hover:bg-surface-2'
+            }`}
+            title="Janela sempre por cima, pra ler o roteiro enquanto apresenta"
+          >
+            {floatHost && !floatHost.closed ? 'Janela aberta' : 'Janela flutuante'}
+          </button>
           <span className="text-xs text-muted-foreground" role="status">
             {saveLabel[saveState]}
           </span>
@@ -897,6 +957,19 @@ export default function PilotoRoteiro() {
           </button>
         </div>
       </div>
+
+      {floatHost && !floatHost.closed ? (
+        <RoteiroFloatPortal
+          host={floatHost}
+          card={card}
+          index={index}
+          total={cards.length}
+          notes={notes}
+          onPrev={goPrev}
+          onNext={goNext}
+          onClose={closeFloat}
+        />
+      ) : null}
     </div>
   )
 }
