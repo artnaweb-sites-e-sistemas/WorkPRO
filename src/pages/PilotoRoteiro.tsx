@@ -34,6 +34,15 @@ const ADAPT_VERSION = 3
 
 type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error'
 
+function FloatWindowIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect x="1.5" y="3.5" width="9" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.4" />
+      <rect x="5.5" y="5.5" width="9" height="7" rx="1.2" fill="currentColor" fillOpacity="0.15" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  )
+}
+
 /** Troca {chave} pela anotação colorida e [pista] por texto apagado. */
 function renderFilled(text: string, notes: Record<string, string>): ReactNode[] {
   return text.split(/(\{\w+\}|\[[^\]]+\])/g).map((piece, index) => {
@@ -265,7 +274,6 @@ export default function PilotoRoteiro() {
   const [pricing, setPricing] = useState<PilotoPricing>(DEFAULT_PILOTO_PRICING)
   const [script, setScript] = useState<PilotoScript>(EMPTY_PILOTO_SCRIPT)
   const [saveState, setSaveState] = useState<SaveState>('idle')
-  const [confirmReset, setConfirmReset] = useState(false)
   const [polishing, setPolishing] = useState<string[]>([])
   const [adapting, setAdapting] = useState<string[]>([])
   /** falas em que ele preferiu a genérica (só nesta sessão) */
@@ -718,18 +726,6 @@ export default function PilotoRoteiro() {
             Roteiro <span className="font-medium text-muted-foreground">· {leadName || 'Piloto 45'}</span>
           </p>
           <span className="flex-1" />
-          <button
-            type="button"
-            onClick={() => void openFloat()}
-            className={`rounded border px-2.5 py-1 text-xs transition-colors ${
-              floatHost && !floatHost.closed
-                ? 'border-accent bg-accent/15 text-foreground'
-                : 'border-border text-foreground hover:bg-surface-2'
-            }`}
-            title="Janela sempre por cima, pra ler o roteiro enquanto apresenta"
-          >
-            {floatHost && !floatHost.closed ? 'Janela aberta' : 'Janela flutuante'}
-          </button>
           <span className="text-xs text-muted-foreground" role="status">
             {saveLabel[saveState]}
           </span>
@@ -743,33 +739,19 @@ export default function PilotoRoteiro() {
               {startedAt ? 'Zerar' : 'Iniciar'}
             </button>
           </span>
-          {confirmReset ? (
-            <span className="flex items-center gap-2 text-xs text-muted-foreground">
-              Apagar as anotações?
-              <button
-                type="button"
-                className="rounded border border-status-error px-2.5 py-1 text-status-error transition-colors hover:bg-status-error/10"
-                onClick={() => {
-                  setScript({ notes: leadName ? { empresa: leadName } : {}, cardIndex: 0, raw: {}, settled: {}, adapted: {} })
-                  setStartedAt(null)
-                  setConfirmReset(false)
-                }}
-              >
-                Apagar
-              </button>
-              <button type="button" className="rounded border border-border px-2.5 py-1 text-foreground" onClick={() => setConfirmReset(false)}>
-                Manter
-              </button>
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmReset(true)}
-              className="rounded border border-border px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-surface-2"
-            >
-              Nova reunião
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => void openFloat()}
+            aria-label={floatHost && !floatHost.closed ? 'Janela flutuante aberta' : 'Abrir janela flutuante'}
+            title="Janela flutuante — fica por cima enquanto você apresenta"
+            className={`flex h-[26px] w-[26px] items-center justify-center rounded border transition-colors ${
+              floatHost && !floatHost.closed
+                ? 'border-accent bg-accent/15 text-foreground'
+                : 'border-border text-foreground hover:bg-surface-2'
+            }`}
+          >
+            <FloatWindowIcon />
+          </button>
         </div>
       </header>
 

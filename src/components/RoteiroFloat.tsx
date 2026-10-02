@@ -15,8 +15,8 @@ type FloatSize = { width: number; height: number }
 
 function loadOpacity(): number {
   const raw = Number(localStorage.getItem(OPACITY_KEY))
-  if (Number.isFinite(raw) && raw >= 0.35 && raw <= 1) return raw
-  return 0.88
+  if (Number.isFinite(raw) && raw >= 0.15 && raw <= 1) return raw
+  return 0.72
 }
 
 function loadSize(): FloatSize {
@@ -34,11 +34,27 @@ function copyStylesTo(target: Document) {
     target.head.appendChild(node.cloneNode(true))
   })
   const theme = target.createElement('style')
+  theme.setAttribute('data-roteiro-float', '1')
   theme.textContent = `${SCRIPT_THEME_CSS}
-    html, body { margin: 0; min-height: 100%; background: transparent !important; }
-    body { overflow: hidden; }
+    html, body {
+      margin: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      min-height: 100% !important;
+      background: transparent !important;
+      background-color: transparent !important;
+      overflow: hidden !important;
+    }
+    @media (display-mode: picture-in-picture) {
+      html, body { background: transparent !important; background-color: transparent !important; }
+    }
   `
   target.head.appendChild(theme)
+  target.documentElement.style.background = 'transparent'
+  target.documentElement.style.backgroundColor = 'transparent'
+  target.body.style.background = 'transparent'
+  target.body.style.backgroundColor = 'transparent'
+  target.body.style.margin = '0'
 }
 
 function supportsDocumentPip(): boolean {
@@ -159,6 +175,18 @@ export function RoteiroFloatPortal({
     localStorage.setItem(OPACITY_KEY, String(opacity))
   }, [opacity])
 
+  // Garante fundo transparente da janela (senão o CSS clonado do app pinta #09090B sólido).
+  useEffect(() => {
+    const root = host.document.documentElement
+    const body = host.document.body
+    root.style.setProperty('background', 'transparent', 'important')
+    root.style.setProperty('background-color', 'transparent', 'important')
+    body.style.setProperty('background', 'transparent', 'important')
+    body.style.setProperty('background-color', 'transparent', 'important')
+    body.style.margin = '0'
+    body.style.overflow = 'hidden'
+  }, [host, opacity])
+
   useEffect(() => {
     function persistSize() {
       try {
@@ -188,8 +216,11 @@ export function RoteiroFloatPortal({
     <div
       className="rt flex h-screen flex-col text-foreground"
       style={{
-        background: `rgb(24 24 27 / ${opacity})`,
+        background: `rgb(9 9 11 / ${opacity})`,
         color: 'var(--rt-ink)',
+        textShadow: opacity < 0.55 ? '0 1px 3px rgb(0 0 0 / 0.85)' : undefined,
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
       }}
     >
       <header
@@ -302,7 +333,7 @@ export function RoteiroFloatPortal({
           Opacidade
           <input
             type="range"
-            min={35}
+            min={15}
             max={100}
             value={Math.round(opacity * 100)}
             onChange={(event) => setOpacity(Number(event.target.value) / 100)}
