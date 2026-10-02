@@ -16,7 +16,7 @@ function formatElapsed(ms: number): string {
 }
 
 /**
- * Junta áudio do PC (aba/janela) + microfone num único stream pra gravar os dois lados da call.
+ * Junta áudio do PC (aba/janela) + microfone num único stream.
  */
 async function mixAudioStreams(streams: MediaStream[]): Promise<{ stream: MediaStream; stop: () => void }> {
   const audioTracks = streams.flatMap((stream) => stream.getAudioTracks())
@@ -26,6 +26,9 @@ async function mixAudioStreams(streams: MediaStream[]): Promise<{ stream: MediaS
 
   const Context = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
   const context = new Context()
+  if (context.state === 'suspended') {
+    await context.resume()
+  }
   const destination = context.createMediaStreamDestination()
 
   for (const stream of streams) {
@@ -34,7 +37,6 @@ async function mixAudioStreams(streams: MediaStream[]): Promise<{ stream: MediaS
     source.connect(destination)
   }
 
-  // Mantém as tracks originais vivas até parar (senão o mix seca).
   const stop = () => {
     streams.forEach((stream) => stream.getTracks().forEach((track) => track.stop()))
     void context.close().catch(() => undefined)
@@ -59,27 +61,113 @@ export function ScriptAudioCapture({
   onExtracted: (notes: Record<string, string>) => void
 }) {
   const [phase, setPhase] = useState<Phase>('idle')
+  const [connected, setConnected] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState('')
   const [hint, setHint] = useState('')
 
   const mediaRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
-  const stopCaptureRef = useRef<(() => void) | null>(null)
+  /** Stream misturado (call + mic) — fica vivo a reunião inteira. */
+  const liveStreamRef = useRef<MediaStream | null>(null)
+  const releaseStreamRef = useRef<(() => void) | null>(null)
   const startedAt = useRef(0)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const phaseRef = useRef<Phase>('idle')
+  phaseRef.current = phase
 
   useEffect(() => {
     return () => {
-      stopCapture()
+      stopRecorderOnly()
+      disconnectStream()
       if (tickRef.current) clearInterval(tickRef.current)
     }
   }, [])
 
-  function stopCapture() {
-    stopCaptureRef.current?.()
-    stopCaptureRef.current = null
+  function stopRecorderOnly() {
+    const recorder = mediaRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      try {
+        recorder.stop()
+      } catch {
+        /* ignore */
+      }
+    }
     mediaRef.current = null
+  }
+
+  function disconnectStream() {
+    releaseStreamRef.current?.()
+    releaseStreamRef.current = null
+    liveStreamRef.current = null
+    setConnected(false)
+  }
+
+  async function ensureConnected(): Promise<MediaStream | null> {
+    if (liveStreamRef.current?.getAudioTracks().some((track) => track.readyState === 'live')) {
+      return liveStreamRef.current
+    }
+    disconnectStream()
+
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      setError('Este navegador não permite capturar o áudio do computador.')
+      return null
+    }
+
+    let displayStream: MediaStream | null = null
+    let micStream: MediaStream | null = null
+
+    try {
+      // Uma vez por reunião: aba do Meet/Zoom com “Compartilhar áudio”.
+      displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      })
+      displayStream.getVideoTracks().forEach((track) => track.stop())
+
+      if (!displayStream.getAudioTracks().length) {
+        displayStream.getTracks().forEach((track) => track.stop())
+        setError('Marque “Compartilhar áudio” na aba da call e tente de novo.')
+        return null
+      }
+
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch {
+        micStream = null
+      }
+
+      const sources = micStream ? [displayStream, micStream] : [displayStream]
+      const mixed = await mixAudioStreams(sources)
+      liveStreamRef.current = mixed.stream
+      releaseStreamRef.current = mixed.stop
+      setConnected(true)
+      setError('')
+
+      const onEnded = () => {
+        if (phaseRef.current === 'recording') {
+          void finishAndExtract()
+        } else {
+          disconnectStream()
+          setHint('Áudio da call desconectado. Conecte de novo quando for anotar.')
+        }
+      }
+      displayStream.getAudioTracks().forEach((track) => track.addEventListener('ended', onEnded))
+
+      return mixed.stream
+    } catch (err) {
+      console.error('[ScriptAudioCapture] connect', err)
+      displayStream?.getTracks().forEach((track) => track.stop())
+      micStream?.getTracks().forEach((track) => track.stop())
+      disconnectStream()
+      const name = err instanceof Error ? err.name : ''
+      if (name === 'NotAllowedError') {
+        setError('Compartilhamento cancelado.')
+      } else {
+        setError('Não deu pra conectar o áudio. Use Chrome/Edge e compartilhe a aba com áudio.')
+      }
+      return null
+    }
   }
 
   async function startRecording() {
@@ -89,46 +177,15 @@ export function ScriptAudioCapture({
       setError('Esta ficha não tem campos para anotar.')
       return
     }
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      setError('Este navegador não permite capturar o áudio do computador.')
-      return
-    }
 
-    let displayStream: MediaStream | null = null
-    let micStream: MediaStream | null = null
+    const stream = await ensureConnected()
+    if (!stream) return
 
     try {
-      // Chrome: escolha a aba do Meet/Zoom e marque "Compartilhar áudio da aba".
-      // Chrome/Edge: escolha a aba do Meet/Zoom e marque “Compartilhar áudio”.
-      displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true,
-      })
-
-      // Só precisamos do áudio; o vídeo é exigido pela API pra abrir o seletor.
-      displayStream.getVideoTracks().forEach((track) => track.stop())
-
-      if (!displayStream.getAudioTracks().length) {
-        displayStream.getTracks().forEach((track) => track.stop())
-        setError('Marque “Compartilhar áudio” na aba/janela da call e tente de novo.')
-        return
-      }
-
-      try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      } catch {
-        // Sem mic ainda dá pra pegar o áudio da aba (voz do lead).
-        micStream = null
-      }
-
-      const sources = micStream ? [displayStream, micStream] : [displayStream]
-      const mixed = await mixAudioStreams(sources)
-      stopCaptureRef.current = mixed.stop
-
       const mimeType = pickRecorderMimeType()
       const recorder = mimeType
-        ? new MediaRecorder(mixed.stream, { mimeType })
-        : new MediaRecorder(mixed.stream)
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream)
       chunksRef.current = []
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data)
@@ -139,24 +196,9 @@ export function ScriptAudioCapture({
       tickRef.current = setInterval(() => setElapsed(Date.now() - startedAt.current), 250)
       recorder.start(1000)
       setPhase('recording')
-
-      // Se o usuário parar o compartilhamento pelo Chrome, encerra a gravação.
-      displayStream.getAudioTracks()[0]?.addEventListener('ended', () => {
-        if (mediaRef.current?.state === 'recording') {
-          void stopAndExtract()
-        }
-      })
     } catch (err) {
-      console.error('[ScriptAudioCapture] capture', err)
-      displayStream?.getTracks().forEach((track) => track.stop())
-      micStream?.getTracks().forEach((track) => track.stop())
-      stopCapture()
-      const name = err instanceof Error ? err.name : ''
-      if (name === 'NotAllowedError') {
-        setError('Compartilhamento cancelado. Escolha a aba da call com áudio ligado.')
-      } else {
-        setError('Não consegui capturar o áudio do PC. Use Chrome/Edge e compartilhe a aba com áudio.')
-      }
+      console.error('[ScriptAudioCapture] record', err)
+      setError('Não consegui iniciar a gravação.')
       setPhase('idle')
     }
   }
@@ -175,16 +217,17 @@ export function ScriptAudioCapture({
         /* ignore */
       }
     }
-    stopCapture()
+    mediaRef.current = null
     chunksRef.current = []
     setPhase('idle')
     setElapsed(0)
-    setHint('')
+    // Mantém o áudio da call conectado.
   }
 
-  async function stopAndExtract() {
+  async function finishAndExtract() {
     const recorder = mediaRef.current
-    if (!recorder || (phase !== 'recording' && recorder.state !== 'recording')) return
+    if (!recorder) return
+    if (recorder.state !== 'recording' && phaseRef.current !== 'recording') return
 
     if (tickRef.current) {
       clearInterval(tickRef.current)
@@ -211,7 +254,8 @@ export function ScriptAudioCapture({
       return null
     })
 
-    stopCapture()
+    mediaRef.current = null
+    // NÃO desconecta o stream — próxima gravação reutiliza.
 
     if (!blob || blob.size < 800) {
       setPhase('idle')
@@ -237,12 +281,12 @@ export function ScriptAudioCapture({
       onExtracted(notes)
       setHint(
         filled.length
-          ? `Preencheu ${filled.length} campo${filled.length > 1 ? 's' : ''}. Ajuste se precisar.`
-          : 'Não achei resposta clara do lead. Grave de novo o trecho.',
+          ? `Preencheu ${filled.length} campo${filled.length > 1 ? 's' : ''}.`
+          : 'Não achei resposta clara. Grave de novo o trecho.',
       )
     } catch (err) {
       console.error('[ScriptAudioCapture] extract', err)
-      setError('Não deu pra extrair agora. Tente de novo em alguns segundos.')
+      setError('Não deu pra extrair agora. Tente de novo.')
       setHint('')
     } finally {
       setPhase('idle')
@@ -251,12 +295,19 @@ export function ScriptAudioCapture({
     }
   }
 
-  if (!captureKeys.length) return null
+  if (!captureKeys.length && !connected) return null
 
   return (
     <div className="rounded-lg border border-border px-4 py-3" style={{ backgroundColor: 'var(--rt-paper)' }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-foreground">Anotar por áudio</p>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">Anotar por áudio</p>
+          {connected ? (
+            <p className="mt-0.5 text-xs" style={{ color: 'var(--rt-faint)' }}>
+              Call conectada
+            </p>
+          ) : null}
+        </div>
         {phase === 'recording' ? (
           <span className="inline-flex items-center gap-1.5 text-sm tabular-nums text-foreground">
             <span className="h-2 w-2 animate-pulse rounded-full bg-status-error" aria-hidden />
@@ -267,19 +318,36 @@ export function ScriptAudioCapture({
 
       <div className="mt-3 flex flex-wrap gap-2">
         {phase === 'idle' ? (
-          <button
-            type="button"
-            onClick={() => void startRecording()}
-            className="rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground transition-colors hover:brightness-110"
-          >
-            Gravar
-          </button>
+          <>
+            {captureKeys.length ? (
+              <button
+                type="button"
+                onClick={() => void startRecording()}
+                className="rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground transition-colors hover:brightness-110"
+              >
+                {connected ? 'Gravar' : 'Conectar e gravar'}
+              </button>
+            ) : null}
+            {connected ? (
+              <button
+                type="button"
+                onClick={() => {
+                  disconnectStream()
+                  setHint('')
+                  setError('')
+                }}
+                className="rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
+              >
+                Desconectar
+              </button>
+            ) : null}
+          </>
         ) : null}
         {phase === 'recording' ? (
           <>
             <button
               type="button"
-              onClick={() => void stopAndExtract()}
+              onClick={() => void finishAndExtract()}
               className="rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground transition-colors hover:brightness-110"
             >
               Enviar e preencher

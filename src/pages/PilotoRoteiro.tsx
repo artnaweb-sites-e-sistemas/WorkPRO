@@ -743,16 +743,16 @@ export default function PilotoRoteiro() {
           <Card card={card} index={index} total={cards.length} notes={notes} renderLine={renderLine} />
 
           <aside className="grid min-w-0 gap-5 lg:sticky lg:top-20">
+            <ScriptAudioCapture
+              captureKeys={card.capture ?? []}
+              cardTitle={card.title}
+              cardGoal={card.goal}
+              company={(notes.empresa ?? '').trim() || leadName}
+              leadName={(notes.nome ?? '').trim()}
+              onExtracted={applyExtractedNotes}
+            />
             {card.capture?.length ? (
               <div className="grid gap-3.5">
-                <ScriptAudioCapture
-                  captureKeys={card.capture}
-                  cardTitle={card.title}
-                  cardGoal={card.goal}
-                  company={(notes.empresa ?? '').trim() || leadName}
-                  leadName={(notes.nome ?? '').trim()}
-                  onExtracted={applyExtractedNotes}
-                />
                 <p className="text-sm" style={{ color: 'var(--rt-muted)' }}>
                   Anote o que ele disser
                 </p>
