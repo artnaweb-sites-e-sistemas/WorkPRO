@@ -223,7 +223,6 @@ export const CALL_NODES: Record<string, CallNode> = {
     title: 'Onde escapa',
     goal: 'Perguntas que ele mesmo responde e percebe o que deixa na mesa. Você não aponta problema.',
     say: [
-      'E quando alguém procura no Google aqui em {cidade}, a {empresa} aparece entre os primeiros?#"Não sei" já é uma ótima resposta. Não corrija, só anote mentalmente.',
       '@whats E os orçamentos que chegam pelo WhatsApp: de cada dez, mais ou menos quantos viram serviço?#Número baixo ou "não sei" é a deixa.',
       '@dor E o que você acha que faz o resto não fechar?#Anote nas palavras dele. É o que você usa no convite.',
     ],
