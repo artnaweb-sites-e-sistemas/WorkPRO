@@ -7,6 +7,7 @@
 
 import type { ColdCall } from '../types/coldCall'
 import { companyKeyOf, phoneKeyOf } from '../types/coldCall'
+import { shortWhen } from './callbackTime'
 
 const APP_SOURCE = 'workpro-app'
 const EXTENSION_SOURCE = 'workpro-extension'
@@ -43,7 +44,7 @@ export function syncColdCallsToExtension(calls: ColdCall[]) {
       attempts: item.attempts,
       lastMs: item.startedAtMs,
       responsavel: (item.notes.responsavel ?? '').trim(),
-      horario: (item.notes.horario ?? '').trim(),
+      horario: item.notes.horarioAt ? shortWhen(item.notes.horarioAt) : (item.notes.horario ?? '').trim(),
     })),
   })
 }

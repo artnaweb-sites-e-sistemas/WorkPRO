@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, type Schema } from '@google/generative-ai'
+import { GoogleGenerativeAI, type Schema, type Tool } from '@google/generative-ai'
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim()
 
@@ -18,5 +18,17 @@ export function getGeminiModel(systemInstruction: string, jsonSchema?: object) {
         responseSchema: jsonSchema as Schema,
       },
     }),
+  })
+}
+
+/**
+ * Modelo com pesquisa no Google (resposta em texto, com fatos de agora).
+ * O SDK ainda não tipa a ferramenta `googleSearch`, mas repassa para a API como está.
+ */
+export function getSearchModel(systemInstruction: string) {
+  return genAI.getGenerativeModel({
+    model: 'gemini-flash-latest',
+    systemInstruction,
+    tools: [{ googleSearch: {} } as unknown as Tool],
   })
 }

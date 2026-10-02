@@ -32,6 +32,7 @@ const WPCC_STATUS = {
   retorno: { label: "Ligar de novo", color: "#F97316" },
   agendou: { label: "Reunião marcada", color: "#22C55E" },
   "sem-interesse": { label: "Não quis", color: "#EF4444" },
+  barrado: { label: "Recepção barrou", color: "#A855F7" },
   andamento: { label: "Em andamento", color: "#A1A1AA" }
 };
 

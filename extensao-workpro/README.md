@@ -24,7 +24,8 @@ vez: é ele que manda o histórico para a extensão.
   - Azul: não atendeu.
   - Laranja: pediu para ligar de novo.
   - Verde: reunião marcada.
-  - Vermelho: não quis.
+  - Vermelho: o dono não quis.
+  - Roxo: a recepção barrou (não conta como recusa do dono).
   - Cinza: ligação que ficou pela metade.
 - O reconhecimento é pelo telefone (últimos 8 dígitos) ou pelo nome da empresa, ignorando
   acento e maiúsculas. É o mesmo critério do aviso de empresa repetida no WorkPRO.

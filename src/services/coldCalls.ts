@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -119,7 +120,30 @@ export async function getCachedNiche(key: string): Promise<ColdCallNiche | null>
   return niche.grupo && niche.clientes && niche.dor1 && niche.dor2 ? niche : null
 }
 
-export async function saveCachedNiche(key: string, niche: ColdCallNiche): Promise<void> {
+/** `nicho`: como você digitou, para aparecer na lista de nichos já usados. */
+export async function saveCachedNiche(key: string, niche: ColdCallNiche, nicho: string): Promise<void> {
   const uid = requireUserUid()
-  await setDoc(doc(db, 'users', uid, 'coldCallNiches', key), { ...niche, updatedAt: serverTimestamp() })
+  await setDoc(doc(db, 'users', uid, 'coldCallNiches', key), { ...niche, nicho, updatedAt: serverTimestamp() })
+}
+
+export interface SavedNiche {
+  key: string
+  /** vazio em nichos salvos antes de guardarmos o nome */
+  nicho: string
+}
+
+/** Nichos já adaptados (a lista do campo Nicho). */
+export async function listCachedNiches(): Promise<SavedNiche[]> {
+  const uid = requireUserUid()
+  const snapshot = await getDocs(collection(db, 'users', uid, 'coldCallNiches'))
+  return snapshot.docs.map((document) => {
+    const data = document.data()
+    return { key: document.id, nicho: typeof data.nicho === 'string' ? data.nicho : '' }
+  })
+}
+
+/** Tira o nicho da lista; se ele for usado de novo, a IA adapta outra vez. */
+export async function deleteCachedNiche(key: string): Promise<void> {
+  const uid = requireUserUid()
+  await deleteDoc(doc(db, 'users', uid, 'coldCallNiches', key))
 }

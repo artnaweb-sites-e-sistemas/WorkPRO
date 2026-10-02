@@ -100,7 +100,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .then(async (origin) => {
         const tab = await findWorkproTab(origin);
         if (tab) {
-          await chrome.tabs.update(tab.id, { active: true, url: `${origin}/ligacao` });
+          // Já está no Cold call: só traz a aba para frente, sem recarregar a ligação em andamento.
+          const onColdCall = new URL(tab.url).pathname.startsWith("/ligacao");
+          await chrome.tabs.update(tab.id, onColdCall ? { active: true } : { active: true, url: `${origin}/ligacao` });
           await chrome.windows.update(tab.windowId, { focused: true });
         } else {
           await chrome.tabs.create({ url: `${origin}/ligacao` });

@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react'
-import { suggestProspecting } from '../ai/suggestProspecting'
-import type { ProspectResult, ProspectSuggestion } from '../ai/suggestProspecting'
-import type { ColdCall } from '../types/coldCall'
-import { reachedOwner } from '../types/coldCall'
+import { useState } from 'react'
+import type { FormEvent } from 'react'
+import { SCORE_LABELS, chanceTier, suggestProspecting } from '../ai/suggestProspecting'
+import type { ProspectResult, ProspectScores, ProspectStage, ProspectSuggestion } from '../ai/suggestProspecting'
 
-const STORAGE_KEY = 'workpro.coldcall.ideas'
+const STORAGE_KEY = 'workpro.coldcall.ideas.v2'
 
 interface SavedIdeas {
   nicho: string
@@ -16,7 +15,8 @@ interface SavedIdeas {
 function loadSaved(): SavedIdeas | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as SavedIdeas) : null
+    const data = raw ? (JSON.parse(raw) as SavedIdeas) : null
+    return data && Array.isArray(data.result?.sugestoes) ? data : null
   } catch {
     return null
   }
@@ -30,192 +30,293 @@ function save(data: SavedIdeas) {
   }
 }
 
-/** Resumo do histórico por nicho + cidade, para a IA saber o que já foi feito e o que deu certo. */
-function summarize(calls: ColdCall[]): string[] {
-  const groups = new Map<
-    string,
-    { nicho: string; cidade: string; total: number; atenderam: number; dono: number; reunioes: number; recusas: number; ultima: number }
-  >()
-  for (const call of calls) {
-    const nicho = (call.notes.nicho ?? '').trim()
-    const cidade = (call.notes.cidade ?? '').trim()
-    const key = `${nicho.toLowerCase()}|${cidade.toLowerCase()}`
-    const group = groups.get(key) ?? { nicho, cidade, total: 0, atenderam: 0, dono: 0, reunioes: 0, recusas: 0, ultima: 0 }
-    group.total += 1
-    if ([...call.path, call.nodeId].includes('quem')) group.atenderam += 1
-    if (reachedOwner(call)) group.dono += 1
-    if (call.outcome === 'agendou') group.reunioes += 1
-    if (call.outcome === 'sem-interesse') group.recusas += 1
-    group.ultima = Math.max(group.ultima, call.startedAtMs)
-    groups.set(key, group)
-  }
-  return [...groups.values()]
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 40)
-    .map(
-      (g) =>
-        `${g.nicho || 'sem nicho'} | ${g.cidade || 'sem cidade'}: ${g.total} ligações, ${g.atenderam} atenderam, ` +
-        `${g.dono} com o dono, ${g.reunioes} reuniões, ${g.recusas} recusaram, última em ${new Date(g.ultima).toLocaleDateString('pt-BR')}`,
-    )
-}
-
 function whatHappens(nicho: string, regiao: string): string {
-  if (nicho && regiao) return `A IA sugere recortes e buscas para ${nicho} em ${regiao} e arredores, olhando o que você já ligou.`
-  if (nicho) return `A IA sugere as cidades com mais chance para ${nicho}, priorizando onde você ainda não ligou.`
-  if (regiao) return `A IA sugere os nichos com mais chance em ${regiao}: bolso para o plano e dono fácil de alcançar.`
-  return 'Sem nicho nem região: a IA cruza seu histórico e sugere as melhores combinações para abordar agora.'
+  if (nicho && regiao) return `A IA pesquisa ${regiao} no Google e avalia ${nicho} e os nichos vizinhos que valem mais ali. Leva uns 30 segundos.`
+  if (regiao) return `A IA pesquisa ${regiao} no Google e ranqueia os nichos onde é mais fácil falar com o dono. Leva uns 30 segundos.`
+  return `A IA sugere as cidades com mais chance para ${nicho}.`
 }
 
+/** Aba Locais do Google, já com a busca. */
 function localsUrl(query: string): string {
-  return `https://www.google.com/search?q=${encodeURIComponent(query)}&udm=local`
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=lcl`
+}
+
+function plain(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+const TIER: Record<'alta' | 'boa' | 'media', { label: string; color: string }> = {
+  alta: { label: 'Chance alta', color: 'var(--c4-fg)' },
+  boa: { label: 'Boa chance', color: 'var(--rt-ink)' },
+  media: { label: 'Chance média', color: 'var(--rt-faint)' },
+}
+
+function scoreSummary(notas: ProspectScores): string {
+  return (Object.keys(SCORE_LABELS) as (keyof ProspectScores)[]).map((key) => `${SCORE_LABELS[key]}: ${notas[key]}/5`).join('\n')
 }
 
 const fieldClass =
   'w-full rounded-md border border-border bg-surface-2 px-3 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none'
 
-/** Aba "Onde prospectar": a IA sugere nichos, cidades e as buscas para o Google Locais. */
-export function ColdCallIdeas({
-  calls,
-  onUse,
-}: {
-  calls: ColdCall[]
-  onUse: (suggestion: ProspectSuggestion) => void
-}) {
+/** Aba "Onde prospectar": a IA pesquisa a região e ranqueia os nichos com mais chance de falar com o dono. */
+export function ColdCallIdeas({ onUse }: { onUse: (suggestion: ProspectSuggestion) => void }) {
   const [saved] = useState(loadSaved)
-  const [nicho, setNicho] = useState(saved?.nicho ?? '')
   const [regiao, setRegiao] = useState(saved?.regiao ?? '')
+  const [nicho, setNicho] = useState(saved?.nicho ?? '')
   const [result, setResult] = useState<ProspectResult | null>(saved?.result ?? null)
+  /** o pedido que gerou o resultado na tela */
+  const [asked, setAsked] = useState({ nicho: saved?.nicho ?? '', regiao: saved?.regiao ?? '' })
   const [at, setAt] = useState<number | null>(saved?.at ?? null)
-  const [loading, setLoading] = useState(false)
+  const [stage, setStage] = useState<ProspectStage | null>(null)
   const [error, setError] = useState('')
+  const [open, setOpen] = useState<number | null>(null)
+  const [showAvoid, setShowAvoid] = useState(false)
 
-  useEffect(() => {
-    setError('')
-  }, [nicho, regiao])
+  const typedNicho = nicho.trim()
+  const typedRegiao = regiao.trim()
+  const missing = !typedNicho && !typedRegiao
+  const loading = stage !== null
 
-  async function run() {
-    setLoading(true)
+  async function run(event: FormEvent) {
+    event.preventDefault()
+    if (missing || loading) return
     setError('')
+    setStage(typedRegiao ? 'pesquisando' : 'comparando')
     try {
-      const next = await suggestProspecting({ nicho: nicho.trim(), regiao: regiao.trim(), historico: summarize(calls) })
+      const next = await suggestProspecting({ nicho: typedNicho, regiao: typedRegiao, onStage: setStage })
       const now = Date.now()
       setResult(next)
+      setAsked({ nicho: typedNicho, regiao: typedRegiao })
       setAt(now)
-      save({ nicho: nicho.trim(), regiao: regiao.trim(), result: next, at: now })
+      setOpen(0)
+      setShowAvoid(false)
+      save({ nicho: typedNicho, regiao: typedRegiao, result: next, at: now })
     } catch (err) {
       console.error('[ColdCallIdeas]', err)
-      setError('Não deu para gerar agora. Tente de novo em alguns segundos.')
+      setError('Não deu para pesquisar agora. Tente de novo em alguns segundos.')
     } finally {
-      setLoading(false)
+      setStage(null)
     }
   }
 
+  const helper = error
+    ? error
+    : stage === 'pesquisando'
+      ? `Pesquisando ${typedRegiao} no Google…`
+      : stage === 'comparando'
+        ? 'Comparando os nichos e montando a lista…'
+        : missing
+          ? 'Diga a cidade ou região, o nicho, ou os dois.'
+          : whatHappens(typedNicho, typedRegiao)
+
+  const askedRegiao = plain(asked.regiao)
+  const title = asked.regiao
+    ? `Nichos para ${asked.regiao}${asked.nicho ? `, a partir de ${asked.nicho}` : ''}`
+    : `Cidades para ${asked.nicho}`
+
   return (
-    <div className="mx-auto mt-6 max-w-6xl px-6">
-      <div className="max-w-3xl">
+    <div className="mx-auto mt-8 max-w-6xl px-6">
+      <div className="max-w-4xl">
         <h1 className="text-[26px] font-bold leading-tight text-foreground">Onde prospectar</h1>
         <p className="mt-1 text-[15px]" style={{ color: 'var(--rt-muted)' }}>
-          Preencha um nicho, uma região, os dois ou nenhum. A IA olha suas ligações e devolve as buscas prontas para o Google Locais.
+          A IA pesquisa a região e ranqueia os nichos onde é mais fácil falar com o dono e fechar o Piloto 45.
         </p>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <form onSubmit={(event) => void run(event)} className="mt-6 grid gap-3 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_auto] sm:items-end">
           <label className="grid gap-1.5">
-            <span className="text-[13px] font-semibold text-foreground">Nicho</span>
-            <input
-              value={nicho}
-              onChange={(event) => setNicho(event.target.value)}
-              placeholder="Ex.: clínicas de estética"
-              className={fieldClass}
-            />
+            <span className="text-[13px] font-semibold text-foreground">Cidade ou região</span>
+            <input value={regiao} onChange={(event) => setRegiao(event.target.value)} placeholder="Cidade, bairro ou estado" className={fieldClass} />
           </label>
           <label className="grid gap-1.5">
-            <span className="text-[13px] font-semibold text-foreground">Região</span>
-            <input
-              value={regiao}
-              onChange={(event) => setRegiao(event.target.value)}
-              placeholder="Ex.: interior de SP, Campinas"
-              className={fieldClass}
-            />
+            <span className="text-[13px] font-semibold text-foreground">
+              Nicho <span className="font-normal" style={{ color: 'var(--rt-faint)' }}>(opcional)</span>
+            </span>
+            <input value={nicho} onChange={(event) => setNicho(event.target.value)} placeholder="Vazio: a IA escolhe" className={fieldClass} />
           </label>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-4">
           <button
-            type="button"
-            onClick={() => void run()}
-            disabled={loading}
+            type="submit"
+            disabled={missing || loading}
             aria-busy={loading}
-            className="whitespace-nowrap rounded-md bg-accent px-4 py-2.5 text-sm font-semibold text-accent-foreground transition-colors disabled:opacity-60"
+            className="h-[46px] whitespace-nowrap rounded-md bg-accent px-5 text-sm font-semibold text-accent-foreground transition-colors disabled:opacity-50"
           >
-            {loading ? 'Pensando…' : result ? 'Sugerir de novo' : 'Sugerir onde ligar'}
+            {loading ? 'Pesquisando…' : result ? 'Pesquisar de novo' : 'Pesquisar nichos'}
           </button>
-          <p className="min-w-0 flex-1 text-sm" style={{ color: error ? undefined : 'var(--rt-muted)' }}>
-            {error ? <span className="text-status-error">{error}</span> : whatHappens(nicho.trim(), regiao.trim())}
-          </p>
-        </div>
-      </div>
+        </form>
+        <p className={`mt-2 text-sm${error ? ' text-status-error' : ''}`} style={error ? undefined : { color: 'var(--rt-muted)' }} role="status">
+          {helper}
+        </p>
 
-      {result ? (
-        <section className="mt-8">
-          <div className="flex flex-wrap items-baseline justify-between gap-3 border-b pb-3" style={{ borderColor: 'var(--rt-rule)' }}>
-            <p className="max-w-3xl text-[16px] leading-relaxed text-foreground">{result.leitura}</p>
-            {at ? (
-              <span className="whitespace-nowrap text-xs tabular-nums" style={{ color: 'var(--rt-faint)' }}>
-                Gerado em {new Date(at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-              </span>
+        {result ? (
+          <section className="mt-10" aria-busy={loading}>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+              <h2 className="text-[17px] font-semibold text-foreground">{title}</h2>
+              {at ? (
+                <span className="whitespace-nowrap text-xs tabular-nums" style={{ color: 'var(--rt-faint)' }}>
+                  {result.pesquisou ? 'Com pesquisa no Google · ' : ''}
+                  {new Date(at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              ) : null}
+            </div>
+            {result.leitura ? (
+              <p className="mt-1.5 max-w-3xl text-[15px] leading-relaxed" style={{ color: 'var(--rt-muted)' }}>
+                {result.leitura}
+              </p>
             ) : null}
-          </div>
 
-          <ol>
-            {result.sugestoes.map((item, itemIndex) => (
-              <li
-                key={`${item.nicho}-${item.regiao}-${itemIndex}`}
-                className="grid gap-4 border-b py-5 md:grid-cols-[minmax(0,1fr)_auto]"
-                style={{ borderColor: 'var(--rt-rule)' }}
-              >
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold" style={{ color: item.prioridade === 'alta' ? 'var(--c4-fg)' : 'var(--rt-faint)' }}>
-                    {item.prioridade === 'alta' ? '● Mais chance' : '● Boa chance'}
-                  </p>
-                  <h2 className="mt-1 text-[18px] font-bold text-foreground">
-                    {item.nicho} <span className="font-medium" style={{ color: 'var(--rt-muted)' }}>· {item.regiao}</span>
-                  </h2>
-                  <p className="mt-1.5 text-[15px] leading-relaxed text-foreground">{item.porque}</p>
-                  <p className="mt-1 text-sm leading-relaxed" style={{ color: 'var(--rt-muted)' }}>
-                    <strong className="font-semibold text-foreground">Ao ligar:</strong> {item.abordagem}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-                    {item.buscas.map((busca) => (
-                      <a
-                        key={busca}
-                        href={localsUrl(busca)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm underline decoration-[color:var(--rt-rule)] underline-offset-4 transition-colors hover:text-accent"
-                        style={{ color: 'var(--c1-fg)' }}
-                      >
-                        {busca} ↗
-                      </a>
+            <ol className="mt-5 border-t" style={{ borderColor: 'var(--rt-rule)' }}>
+              {result.sugestoes.map((item, index) => {
+                const expanded = open === index
+                const tier = TIER[chanceTier(item.chance)]
+                // Mesma cidade do pedido: não repete em toda linha.
+                const showRegion = !askedRegiao || !plain(item.regiao).includes(askedRegiao.split(/\s*[-,]\s*/)[0])
+                const cidade = item.regiao.replace(/\s*[-–,]\s*[A-Z]{2}$/, '').trim()
+                return (
+                  <li key={`${item.nicho}-${item.regiao}`} className="border-b" style={{ borderColor: 'var(--rt-rule)' }}>
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      onClick={() => setOpen(expanded ? null : index)}
+                      className="group grid w-full grid-cols-[1.75rem_minmax(0,1fr)_auto] items-start gap-x-4 py-4 text-left"
+                    >
+                      <span className="pt-0.5 text-sm tabular-nums" style={{ color: 'var(--rt-faint)' }}>
+                        {index + 1}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[16px] font-semibold text-foreground transition-colors group-hover:text-accent">
+                          {capitalize(item.nicho)}
+                          {showRegion ? (
+                            <span className="font-normal" style={{ color: 'var(--rt-muted)' }}>
+                              {' '}
+                              · {item.regiao}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className={`mt-0.5 block text-sm leading-snug${expanded ? '' : ' truncate'}`} style={{ color: 'var(--rt-muted)' }}>
+                          {item.porque}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-3 pt-0.5 text-sm">
+                        <span className="whitespace-nowrap" style={{ color: tier.color }} title={scoreSummary(item.notas)}>
+                          {tier.label}
+                        </span>
+                        <span aria-hidden className="w-3 text-center" style={{ color: 'var(--rt-faint)' }}>
+                          {expanded ? '−' : '+'}
+                        </span>
+                      </span>
+                    </button>
+
+                    {expanded ? (
+                      <div className="grid gap-5 pb-6 pl-[2.75rem]">
+                        <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-3">
+                          <div>
+                            <dt className="text-xs" style={{ color: 'var(--rt-faint)' }}>
+                              Quem atende
+                            </dt>
+                            <dd className="mt-0.5 text-foreground">{item.quemAtende}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs" style={{ color: 'var(--rt-faint)' }}>
+                              Melhor horário
+                            </dt>
+                            <dd className="mt-0.5 tabular-nums text-foreground">{item.melhorHorario}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-xs" style={{ color: 'var(--rt-faint)' }}>
+                              Ticket típico
+                            </dt>
+                            <dd className="mt-0.5 tabular-nums text-foreground">{item.ticket}</dd>
+                          </div>
+                        </dl>
+
+                        <div>
+                          <p className="text-xs" style={{ color: 'var(--rt-faint)' }}>
+                            Quem escolher na lista do Google
+                          </p>
+                          <p className="mt-0.5 text-sm leading-relaxed text-foreground">{item.sinais}</p>
+                        </div>
+
+                        <div>
+                          <p className="text-xs" style={{ color: 'var(--rt-faint)' }}>
+                            Buscas prontas no Google Locais
+                          </p>
+                          <ul className="mt-1 flex flex-wrap gap-x-5 gap-y-1.5">
+                            {item.buscas.map((busca) => (
+                              <li key={busca}>
+                                <a
+                                  href={localsUrl(busca)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm underline decoration-[color:var(--rt-rule)] underline-offset-4 transition-colors hover:text-accent"
+                                  style={{ color: 'var(--c1-fg)' }}
+                                >
+                                  {busca} ↗
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                          <button
+                            type="button"
+                            onClick={() => onUse(item)}
+                            className="whitespace-nowrap rounded-md border border-border px-3.5 py-2 text-sm text-foreground transition-colors hover:bg-surface-2"
+                          >
+                            Usar no Cold call
+                          </button>
+                          <span className="text-xs" style={{ color: 'var(--rt-faint)' }}>
+                            A próxima ligação começa com {item.nicho} em {cidade}.
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ol>
+
+            {result.evitar.length ? (
+              <div className="mt-6">
+                <button
+                  type="button"
+                  aria-expanded={showAvoid}
+                  onClick={() => setShowAvoid((value) => !value)}
+                  className="group flex items-center gap-2 text-sm"
+                >
+                  <span className="font-semibold text-foreground transition-colors group-hover:text-accent">Evite agora</span>
+                  <span className="c2 rounded px-1.5 text-xs tabular-nums">{result.evitar.length}</span>
+                  <span aria-hidden style={{ color: 'var(--rt-faint)' }}>
+                    {showAvoid ? '−' : '+'}
+                  </span>
+                </button>
+                {showAvoid ? (
+                  <ul className="mt-2">
+                    {result.evitar.map((item) => (
+                      <li key={item.nicho} className="border-t py-2.5 text-sm first:border-t-0" style={{ borderColor: 'var(--rt-rule)' }}>
+                        <span className="font-semibold text-foreground">{capitalize(item.nicho)}</span>
+                        <span style={{ color: 'var(--rt-muted)' }}> · {item.motivo}</span>
+                      </li>
                     ))}
-                  </div>
-                </div>
-                <div className="md:pt-5">
-                  <button
-                    type="button"
-                    onClick={() => onUse(item)}
-                    className="whitespace-nowrap rounded-md border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-2"
-                  >
-                    Usar no Cold call
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ol>
-          <p className="mt-4 text-xs" style={{ color: 'var(--rt-faint)' }}>
-            Sugestões da IA com base nos critérios da oferta e no seu histórico. Cada busca abre a aba Locais do Google.
-          </p>
-        </section>
-      ) : null}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+
+            <p className="mt-8 text-xs" style={{ color: 'var(--rt-faint)' }}>
+              Ordem pela chance de falar com o dono e fechar: acesso ao dono pesa mais, depois o valor do cliente e a procura no Google.
+              Passe o mouse na chance para ver as notas.
+            </p>
+          </section>
+        ) : null}
+      </div>
     </div>
   )
 }
