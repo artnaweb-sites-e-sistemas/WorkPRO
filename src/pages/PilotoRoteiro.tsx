@@ -655,12 +655,13 @@ export default function PilotoRoteiro() {
   }
 
   function applyExtractedNotes(extracted: Record<string, string>) {
+    // Aplica por chave global — a gravação continua entre fichas (Próxima).
     setScript((current) => {
       const notes = { ...current.notes }
       for (const [key, value] of Object.entries(extracted)) {
         const trimmed = value.trim()
         if (!trimmed) continue
-        if (!(card.capture ?? []).includes(key)) continue
+        if (!SCRIPT_CAPTURES[key]) continue
         notes[key] = trimmed
       }
       return { ...current, notes }
