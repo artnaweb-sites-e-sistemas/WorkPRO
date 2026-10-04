@@ -10,7 +10,9 @@ type Phase = 'idle' | 'recording' | 'processing'
 
 const BAR_COUNT = 14
 /** Intervalo entre tentativas de auto-preencher enquanto grava. */
-const LIVE_EXTRACT_MS = 5500
+const LIVE_EXTRACT_MS = 7500
+/** Janela máxima de áudio enviada em cada tentativa (segundos de chunks ~1s). */
+const LIVE_WINDOW_SECONDS = 12
 const MIN_LIVE_BYTES = 2800
 const MIN_FINAL_BYTES = 800
 
@@ -108,10 +110,27 @@ function clearTimers() {
   }
 }
 
+/** Blob completo da ficha (para salvar / modal). */
 function snapshotBlob(): Blob | null {
   if (!session.chunks.length) return null
   const type = session.recorder?.mimeType || 'audio/webm'
   return new Blob(session.chunks, { type })
+}
+
+/**
+ * Janela curta pro live extract: 1º chunk (header WebM) + últimos N segundos.
+ * Evita reenviar o áudio inteiro da ficha a cada tentativa.
+ */
+function snapshotLiveWindowBlob(): Blob | null {
+  const chunks = session.chunks
+  if (!chunks.length) return null
+  const type = session.recorder?.mimeType || 'audio/webm'
+  if (chunks.length <= LIVE_WINDOW_SECONDS + 1) {
+    return new Blob(chunks, { type })
+  }
+  const header = chunks[0]
+  const tail = chunks.slice(-LIVE_WINDOW_SECONDS)
+  return new Blob([header, ...tail], { type })
 }
 
 async function stopRecorderToBlob(recorder: MediaRecorder): Promise<Blob | null> {
@@ -191,7 +210,7 @@ async function tryLiveExtract(force = false) {
   if (session.extracting) return
   if (!ctx.captureKeys.length) return
 
-  const blob = snapshotBlob()
+  const blob = force ? snapshotBlob() : snapshotLiveWindowBlob()
   if (!blob || blob.size < (force ? MIN_FINAL_BYTES : MIN_LIVE_BYTES)) return
 
   session.extracting = true
@@ -215,7 +234,9 @@ async function tryLiveExtract(force = false) {
     // Só aplica se ainda estamos na mesma ficha (evita corrida com Próxima).
     if (session.ctx?.stageKey !== stageKey) return
 
-    setStageRecording(stageKey, blob, transcript)
+    // Modal/gravação: guarda o trecho completo da ficha (não só a janela).
+    const fullBlob = snapshotBlob() || blob
+    setStageRecording(stageKey, fullBlob, transcript)
     patchStageTranscript(stageKey, transcript)
 
     const filled = Object.entries(notes).filter(([, value]) => value.trim())
