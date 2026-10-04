@@ -9,11 +9,6 @@ import {
 type Phase = 'idle' | 'recording' | 'processing'
 
 const BAR_COUNT = 14
-/** Intervalo entre tentativas de auto-preencher enquanto grava. */
-const LIVE_EXTRACT_MS = 7500
-/** Janela máxima de áudio enviada em cada tentativa (segundos de chunks ~1s). */
-const LIVE_WINDOW_SECONDS = 12
-const MIN_LIVE_BYTES = 2800
 const MIN_FINAL_BYTES = 800
 
 /** Conexão compartilhada entre a sidebar e a janela flutuante. */
@@ -47,16 +42,6 @@ function setStageRecording(stageKey: string, blob: Blob, transcript = '') {
   return url
 }
 
-function patchStageTranscript(stageKey: string, transcript: string) {
-  const prev = recordingsByStage.get(stageKey)
-  if (!prev) {
-    recordingsByStage.set(stageKey, { url: '', transcript })
-  } else {
-    recordingsByStage.set(stageKey, { ...prev, transcript })
-  }
-  notifyRecordings()
-}
-
 type CardCtx = {
   stageKey: string
   captureKeys: string[]
@@ -67,8 +52,8 @@ type CardCtx = {
 }
 
 /**
- * Sessão de gravação global: sobrevive a Próxima/Anterior e às duas UIs (sidebar + float).
- * O áudio da call continua; só o “alvo” (ficha/campos) muda.
+ * Sessão global: sobrevive a Próxima/Anterior e às duas UIs.
+ * Extract só no envio manual. Após enviar, Próxima recomeça a gravação sozinha.
  */
 const session = {
   phase: 'idle' as Phase,
@@ -76,13 +61,12 @@ const session = {
   chunks: [] as Blob[],
   startedAt: 0,
   elapsed: 0,
-  stageFilled: false,
-  extracting: false,
+  /** Depois de um envio (ou gravação ativa), Próxima auto-inicia gravação. */
+  continueOnNext: false,
   hint: '',
   error: '',
   ctx: null as CardCtx | null,
   tickTimer: null as ReturnType<typeof setInterval> | null,
-  liveTimer: null as ReturnType<typeof setInterval> | null,
 }
 
 const sessionListeners = new Set<() => void>()
@@ -99,38 +83,11 @@ function formatElapsed(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-function clearTimers() {
+function clearTickTimer() {
   if (session.tickTimer) {
     clearInterval(session.tickTimer)
     session.tickTimer = null
   }
-  if (session.liveTimer) {
-    clearInterval(session.liveTimer)
-    session.liveTimer = null
-  }
-}
-
-/** Blob completo da ficha (para salvar / modal). */
-function snapshotBlob(): Blob | null {
-  if (!session.chunks.length) return null
-  const type = session.recorder?.mimeType || 'audio/webm'
-  return new Blob(session.chunks, { type })
-}
-
-/**
- * Janela curta pro live extract: 1º chunk (header WebM) + últimos N segundos.
- * Evita reenviar o áudio inteiro da ficha a cada tentativa.
- */
-function snapshotLiveWindowBlob(): Blob | null {
-  const chunks = session.chunks
-  if (!chunks.length) return null
-  const type = session.recorder?.mimeType || 'audio/webm'
-  if (chunks.length <= LIVE_WINDOW_SECONDS + 1) {
-    return new Blob(chunks, { type })
-  }
-  const header = chunks[0]
-  const tail = chunks.slice(-LIVE_WINDOW_SECONDS)
-  return new Blob([header, ...tail], { type })
 }
 
 async function stopRecorderToBlob(recorder: MediaRecorder): Promise<Blob | null> {
@@ -143,22 +100,25 @@ async function stopRecorderToBlob(recorder: MediaRecorder): Promise<Blob | null>
     recorder.onerror = () => resolve(null)
     try {
       if (recorder.state !== 'inactive') recorder.stop()
-      else resolve(session.chunks.length ? new Blob(session.chunks, { type: recorder.mimeType || 'audio/webm' }) : null)
+      else {
+        resolve(
+          session.chunks.length
+            ? new Blob(session.chunks, { type: recorder.mimeType || 'audio/webm' })
+            : null,
+        )
+      }
     } catch {
       resolve(null)
     }
   })
 }
 
-function startTimers() {
-  clearTimers()
+function startTickTimer() {
+  clearTickTimer()
   session.tickTimer = setInterval(() => {
     session.elapsed = Date.now() - session.startedAt
     bumpSession()
   }, 250)
-  session.liveTimer = setInterval(() => {
-    void tryLiveExtract()
-  }, LIVE_EXTRACT_MS)
 }
 
 function beginRecorder(stream: MediaStream) {
@@ -172,52 +132,34 @@ function beginRecorder(stream: MediaStream) {
   recorder.start(1000)
 }
 
-async function rotateToStage(next: CardCtx) {
-  const prev = session.ctx
-  const stageChanged = !prev || prev.stageKey !== next.stageKey
-  const wasRecording = session.phase === 'recording' && session.recorder
-
-  if (wasRecording && stageChanged && prev) {
-    const recorder = session.recorder!
-    const blob = await stopRecorderToBlob(recorder)
-    session.recorder = null
-    if (blob && blob.size >= MIN_FINAL_BYTES) {
-      const prevTranscript = recordingsByStage.get(prev.stageKey)?.transcript ?? ''
-      setStageRecording(prev.stageKey, blob, prevTranscript)
-    }
-    if (sharedCapture?.stream) {
-      beginRecorder(sharedCapture.stream)
-    }
-  }
-
-  session.ctx = next
-  if (stageChanged) {
-    session.stageFilled = false
-    if (session.phase === 'recording') {
-      session.hint = next.captureKeys.length
-        ? 'Gravando — preenche sozinho quando o lead responder.'
-        : 'Gravando (esta ficha não tem campo pra anotar).'
-      session.error = ''
-    }
-  }
+function startRecordingWithStream(stream: MediaStream, ctx: CardCtx, hint: string) {
+  session.ctx = ctx
+  session.startedAt = Date.now()
+  session.elapsed = 0
+  session.error = ''
+  beginRecorder(stream)
+  startTickTimer()
+  session.phase = 'recording'
+  session.continueOnNext = true
+  session.hint = hint
   bumpSession()
 }
 
-async function tryLiveExtract(force = false) {
-  const ctx = session.ctx
-  if (session.phase !== 'recording' || !ctx) return
-  if (!force && session.stageFilled) return
-  if (session.extracting) return
-  if (!ctx.captureKeys.length) return
+async function extractBlobForCtx(
+  ctx: CardCtx,
+  blob: Blob,
+  source: 'manual' | 'next' = 'manual',
+): Promise<void> {
+  if (!ctx.captureKeys.length || blob.size < MIN_FINAL_BYTES) {
+    if (blob.size >= MIN_FINAL_BYTES) {
+      setStageRecording(ctx.stageKey, blob, recordingsByStage.get(ctx.stageKey)?.transcript ?? '')
+    }
+    if (!ctx.captureKeys.length) {
+      session.hint = source === 'next' ? '' : 'Sem campos nesta ficha.'
+    }
+    return
+  }
 
-  const blob = force ? snapshotBlob() : snapshotLiveWindowBlob()
-  if (!blob || blob.size < (force ? MIN_FINAL_BYTES : MIN_LIVE_BYTES)) return
-
-  session.extracting = true
-  if (!session.stageFilled) session.hint = 'Ouvindo e preenchendo…'
-  bumpSession()
-
-  const stageKey = ctx.stageKey
   try {
     const audioBase64 = await blobToBase64(blob)
     const fields = fieldsFromCaptureKeys(ctx.captureKeys)
@@ -230,36 +172,82 @@ async function tryLiveExtract(force = false) {
       company: ctx.company,
       leadName: ctx.leadName,
     })
-
-    // Só aplica se ainda estamos na mesma ficha (evita corrida com Próxima).
-    if (session.ctx?.stageKey !== stageKey) return
-
-    // Modal/gravação: guarda o trecho completo da ficha (não só a janela).
-    const fullBlob = snapshotBlob() || blob
-    setStageRecording(stageKey, fullBlob, transcript)
-    patchStageTranscript(stageKey, transcript)
-
+    setStageRecording(ctx.stageKey, blob, transcript)
+    notesCallback?.(notes)
     const filled = Object.entries(notes).filter(([, value]) => value.trim())
     if (filled.length) {
-      notesCallback?.(notes)
-      session.stageFilled = true
-      session.hint = `Preencheu ${filled.length} campo${filled.length > 1 ? 's' : ''}. Pode ir pra próxima.`
-      session.error = ''
-    } else if (force) {
-      session.hint = 'Sem resposta clara do lead neste trecho.'
+      const base = `Preencheu ${filled.length} campo${filled.length > 1 ? 's' : ''}.`
+      session.hint =
+        source === 'next' ? `${base} (ficha anterior)` : `${base} Próxima já grava sozinha.`
     } else {
-      session.hint = 'Ouvindo o lead…'
+      session.hint =
+        source === 'next'
+          ? 'Ficha anterior: sem resposta clara do lead.'
+          : 'Sem resposta clara do lead. Próxima ainda assim pode gravar de novo.'
     }
   } catch (err) {
-    console.error('[ScriptAudioCapture] live extract', err)
-    if (force) {
-      session.error = 'Não deu pra extrair agora. Continua gravando — tente de novo.'
-      session.hint = ''
-    }
-  } finally {
-    session.extracting = false
-    bumpSession()
+    console.error('[ScriptAudioCapture] extract', err)
+    setStageRecording(ctx.stageKey, blob, '')
+    session.error =
+      source === 'next'
+        ? 'Não deu pra extrair a ficha anterior. A gravação ficou salva.'
+        : 'Não deu pra extrair agora. A gravação ficou salva.'
+    session.hint = ''
   }
+}
+
+async function rotateToStage(next: CardCtx) {
+  const prev = session.ctx
+  const stageChanged = !prev || prev.stageKey !== next.stageKey
+  if (!stageChanged) {
+    session.ctx = next
+    bumpSession()
+    return
+  }
+
+  const wasRecording = session.phase === 'recording' && session.recorder
+  const shouldAutoStart =
+    Boolean(sharedCapture?.stream) &&
+    next.captureKeys.length > 0 &&
+    (wasRecording || session.continueOnNext)
+
+  // Esqueceu de enviar: ao ir pra Próxima, manda a gravação da ficha atual.
+  if (wasRecording && prev) {
+    const recorder = session.recorder!
+    session.recorder = null
+    clearTickTimer()
+    session.phase = 'processing'
+    session.hint = 'Enviando a ficha anterior…'
+    bumpSession()
+
+    const blob = await stopRecorderToBlob(recorder)
+    session.chunks = []
+    if (blob && blob.size >= MIN_FINAL_BYTES) {
+      await extractBlobForCtx(prev, blob, 'next')
+    }
+  }
+
+  session.ctx = next
+
+  if (shouldAutoStart && sharedCapture?.stream) {
+    startRecordingWithStream(
+      sharedCapture.stream,
+      next,
+      'Gravando esta ficha — envie quando o lead responder.',
+    )
+    return
+  }
+
+  if (session.phase === 'recording' || session.phase === 'processing') {
+    session.phase = 'idle'
+    session.elapsed = 0
+  }
+  if (!session.hint) {
+    session.hint = session.continueOnNext && next.captureKeys.length
+      ? 'Áudio conectado. Clique em Gravar ou avance com a sessão ativa.'
+      : ''
+  }
+  bumpSession()
 }
 
 async function mixAudioStreams(streams: MediaStream[]): Promise<{ stream: MediaStream; stop: () => void }> {
@@ -412,7 +400,6 @@ export function ScriptAudioCapture({
     setHasMic(Boolean(sharedCapture?.hasMic))
     return () => {
       connectedListeners.delete(listener)
-      // Não para a gravação no unmount — a sessão é global (Próxima / float).
     }
   }, [])
 
@@ -441,12 +428,12 @@ export function ScriptAudioCapture({
       company,
       leadName,
     })
-    // captureKeysKey evita re-rodar quando o pai passa `?? []` novo a cada render.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- captura estabilizada por join
   }, [stageKey, captureKeysKey, cardTitle, cardGoal, company, leadName])
 
   function disconnectStream() {
-    void stopRecordingSession({ save: false })
+    void stopRecordingSession({ mode: 'discard' })
+    session.continueOnNext = false
     sharedCapture?.release()
     sharedCapture = null
     setMeterStream(null)
@@ -509,7 +496,7 @@ export function ScriptAudioCapture({
       displayStream.getAudioTracks().forEach((track) =>
         track.addEventListener('ended', () => {
           if (session.phase === 'recording') {
-            void stopRecordingSession({ save: true, extract: true })
+            void stopRecordingSession({ mode: 'send' })
           } else {
             disconnectStream()
             session.hint = 'Áudio da call desconectado.'
@@ -543,30 +530,17 @@ export function ScriptAudioCapture({
       bumpSession()
       return
     }
-    if (session.phase === 'recording') return
+    if (session.phase === 'recording' || session.phase === 'processing') return
 
     const stream = await ensureConnected()
     if (!stream) return
 
     try {
-      session.ctx = {
-        stageKey,
-        captureKeys,
-        cardTitle,
-        cardGoal,
-        company,
-        leadName,
-      }
-      session.stageFilled = false
-      session.startedAt = Date.now()
-      session.elapsed = 0
-      beginRecorder(stream)
-      startTimers()
-      session.phase = 'recording'
-      session.hint = 'Gravando — preenche sozinho quando o lead responder.'
-      bumpSession()
-      // Primeira tentativa um pouco antes do intervalo cheio.
-      window.setTimeout(() => void tryLiveExtract(), 3200)
+      startRecordingWithStream(
+        stream,
+        { stageKey, captureKeys, cardTitle, cardGoal, company, leadName },
+        'Gravando — envie quando o lead responder.',
+      )
     } catch (err) {
       console.error('[ScriptAudioCapture] record', err)
       session.error = 'Não consegui iniciar a gravação.'
@@ -575,13 +549,17 @@ export function ScriptAudioCapture({
     }
   }
 
-  async function stopRecordingSession(opts: { save: boolean; extract?: boolean }) {
-    clearTimers()
+  async function stopRecordingSession(opts: { mode: 'send' | 'stop' | 'discard' }) {
+    clearTickTimer()
     const recorder = session.recorder
     const ctx = session.ctx
     session.recorder = null
 
     if (!recorder) {
+      if (opts.mode === 'stop' || opts.mode === 'discard') {
+        session.continueOnNext = opts.mode === 'stop' ? false : session.continueOnNext
+        if (opts.mode === 'discard') session.continueOnNext = false
+      }
       session.phase = 'idle'
       session.elapsed = 0
       session.chunks = []
@@ -589,7 +567,7 @@ export function ScriptAudioCapture({
       return
     }
 
-    if (opts.extract && ctx?.captureKeys.length && !session.stageFilled) {
+    if (opts.mode === 'send') {
       session.phase = 'processing'
       session.hint = 'Ouvindo e preenchendo…'
       bumpSession()
@@ -598,42 +576,50 @@ export function ScriptAudioCapture({
     const blob = await stopRecorderToBlob(recorder)
     session.chunks = []
 
-    if (opts.save && blob && blob.size >= MIN_FINAL_BYTES && ctx) {
-      setStageRecording(ctx.stageKey, blob, recordingsByStage.get(ctx.stageKey)?.transcript ?? '')
+    if (opts.mode === 'discard') {
+      session.phase = 'idle'
+      session.elapsed = 0
+      session.continueOnNext = false
+      session.hint = ''
+      bumpSession()
+      return
     }
 
-    if (opts.extract && blob && blob.size >= MIN_FINAL_BYTES && ctx?.captureKeys.length && !session.stageFilled) {
-      try {
-        const audioBase64 = await blobToBase64(blob)
-        const fields = fieldsFromCaptureKeys(ctx.captureKeys)
-        const { notes, transcript } = await extractScriptNotesFromAudio({
-          audioBase64,
-          mimeType: blob.type || 'audio/webm',
-          fields,
-          cardTitle: ctx.cardTitle,
-          cardGoal: ctx.cardGoal,
-          company: ctx.company,
-          leadName: ctx.leadName,
-        })
-        setStageRecording(ctx.stageKey, blob, transcript)
-        notesCallback?.(notes)
-        const filled = Object.entries(notes).filter(([, value]) => value.trim())
-        session.hint = filled.length
-          ? `Preencheu ${filled.length} campo${filled.length > 1 ? 's' : ''}.`
-          : 'Sem resposta clara do lead neste trecho.'
-        session.stageFilled = filled.length > 0
-      } catch (err) {
-        console.error('[ScriptAudioCapture] final extract', err)
-        session.error = 'Não deu pra extrair agora. A gravação ficou salva.'
-        session.hint = ''
+    if (opts.mode === 'stop') {
+      if (blob && blob.size >= MIN_FINAL_BYTES && ctx) {
+        setStageRecording(ctx.stageKey, blob, recordingsByStage.get(ctx.stageKey)?.transcript ?? '')
       }
-    } else if (opts.save && !opts.extract) {
-      session.hint = ''
+      session.phase = 'idle'
+      session.elapsed = 0
+      session.continueOnNext = false
+      session.hint = 'Gravação parada.'
+      bumpSession()
+      return
     }
+
+    // mode === 'send' — único momento explícito que chama a IA
+    if (!blob || blob.size < MIN_FINAL_BYTES) {
+      session.phase = 'idle'
+      session.elapsed = 0
+      session.error = 'Gravação muito curta. Grave de novo o trecho da resposta.'
+      session.hint = ''
+      bumpSession()
+      return
+    }
+
+    if (!ctx) {
+      session.phase = 'idle'
+      session.elapsed = 0
+      session.hint = ''
+      bumpSession()
+      return
+    }
+
+    await extractBlobForCtx(ctx, blob, 'manual')
+    session.continueOnNext = true
 
     session.phase = 'idle'
     session.elapsed = 0
-    session.extracting = false
     bumpSession()
   }
 
@@ -641,8 +627,6 @@ export function ScriptAudioCapture({
   const elapsed = session.elapsed
   const hint = session.hint
   const error = session.error
-  const stageFilled = session.stageFilled
-  const extracting = session.extracting
 
   if (!captureKeys.length && !connected && phase === 'idle') return null
 
@@ -651,10 +635,7 @@ export function ScriptAudioCapture({
   const showMeter = connected || phase === 'recording'
   const statusRight =
     phase === 'recording'
-      ? {
-          label: stageFilled ? 'Preenchido' : extracting ? 'Extraindo…' : formatElapsed(elapsed),
-          live: !stageFilled,
-        }
+      ? { label: formatElapsed(elapsed), live: true }
       : showMeter
         ? { label: 'Ouvindo', live: false }
         : null
@@ -666,7 +647,8 @@ export function ScriptAudioCapture({
           <p className={`font-semibold text-foreground ${compact ? 'text-xs' : 'text-sm'}`}>Anotar por áudio</p>
           {connected ? (
             <p className="mt-0.5 text-[11px]" style={{ color: 'var(--rt-faint)' }}>
-              {hasMic ? 'Mic + áudio da call · gravação contínua' : 'Só áudio da call · gravação contínua'}
+              {hasMic ? 'Mic + áudio da call' : 'Só áudio da call'}
+              {session.continueOnNext ? ' · Próxima grava sozinha' : ''}
             </p>
           ) : null}
         </div>
@@ -720,24 +702,21 @@ export function ScriptAudioCapture({
         ) : null}
         {phase === 'recording' ? (
           <>
-            {!stageFilled ? (
-              <button
-                type="button"
-                disabled={extracting}
-                onClick={() => void tryLiveExtract(true)}
-                className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-foreground transition-colors hover:brightness-110 disabled:opacity-60"
-              >
-                {extracting ? 'Preenchendo…' : 'Enviar agora'}
-              </button>
-            ) : null}
             <button
               type="button"
-              onClick={() => void stopRecordingSession({ save: true, extract: false })}
+              onClick={() => void stopRecordingSession({ mode: 'send' })}
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-accent-foreground transition-colors hover:brightness-110"
+            >
+              Enviar e preencher
+            </button>
+            <button
+              type="button"
+              onClick={() => void stopRecordingSession({ mode: 'stop' })}
               className="rounded-md border border-border px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-2"
             >
-              Parar gravação
+              Parar
             </button>
-            {lastRecordingUrl || lastTranscript || stageFilled ? (
+            {lastRecordingUrl || lastTranscript ? (
               <button
                 type="button"
                 onClick={() => setShowRecordingModal(true)}
@@ -778,7 +757,7 @@ export function ScriptAudioCapture({
                   O que a IA ouviu
                 </h2>
                 <p className="mt-1 text-sm" style={{ color: 'var(--rt-muted)' }}>
-                  Transcrição do trecho desta ficha.
+                  Transcrição do trecho enviado nesta ficha.
                 </p>
               </div>
               <button
