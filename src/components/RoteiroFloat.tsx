@@ -161,7 +161,7 @@ export function RoteiroFloatPortal({
   onNext: () => void
   onClose: () => void
   onNoteChange: (key: string, value: string) => void
-  onExtracted: (notes: Record<string, string>) => void
+  onExtracted: (notes: Record<string, string>, opts: { overwrite: boolean }) => void
 }) {
   useEffect(() => {
     function persistSize() {
@@ -299,11 +299,13 @@ export function RoteiroFloatPortal({
             <ScriptAudioCapture
               compact
               stageKey={`card-${index}`}
+              stageIndex={index}
               captureKeys={captureKeys}
               cardTitle={card.title}
               cardGoal={card.goal}
               company={company}
               leadName={leadName}
+              notes={notes}
               onExtracted={onExtracted}
             />
             <div className="grid gap-2.5">

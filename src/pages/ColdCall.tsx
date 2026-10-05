@@ -93,8 +93,6 @@ const SIDE_LIST_MAX = 5
 const RETRY_MAX = 3
 /** quem não atendeu há mais tempo que isso sai da fila de tentar de novo */
 const RETRY_WINDOW_MS = 14 * 86400000
-/** retorno que vence nos próximos 30 minutos já conta como "na hora" */
-const DUE_SOON_MS = 30 * 60000
 
 /** Mais recente primeiro, sem repetir (a versão que veio por último vale). */
 function mergeCalls(current: ColdCall[], incoming: ColdCall[]): ColdCall[] {
@@ -871,12 +869,6 @@ export default function ColdCall() {
   // Um lembrete por ligação, em rodízio: a lista inteira vira ruído depois da terceira vez.
   const prepTip = atPrep && node.tips?.length ? node.tips[todayCalls.length % node.tips.length] : ''
   const overdueCount = allCallbacks.filter((item) => item.notes.horarioAt && isOverdue(item.notes.horarioAt)).length
-  // Terminou uma ligação e tem retorno vencendo: sugere ligar já.
-  const dueCallback =
-    callbacks.find((item) => {
-      const at = item.notes.horarioAt ?? ''
-      return at !== '' && new Date(at).getTime() <= Date.now() + DUE_SOON_MS
-    }) ?? null
   const fieldClass =
     'box-border w-full max-w-full min-w-0 rounded-md border border-border bg-surface-2 px-3 py-2.5 text-base text-foreground placeholder:text-muted-foreground focus:border-accent focus:outline-none'
 
@@ -1095,16 +1087,12 @@ export default function ColdCall() {
                 done={call.done}
                 attempts={call.attempts}
                 callbackAt={call.notes.horarioAt ?? ''}
-                dueCallback={dueCallback}
                 onCallback={setCallback}
                 onToggle={toggleDone}
                 onBack={back}
                 onForward={forward.length ? goForward : undefined}
                 onNext={nextCall}
                 onCallAgain={resumeCurrent}
-                onCallDue={() => {
-                  if (dueCallback) resume(dueCallback)
-                }}
                 pilotoId={
                   (call.notes.pilotoId ?? '').trim() ||
                   pilotosByCompany.get(companyKeyOf(company)) ||
@@ -1828,14 +1816,12 @@ function OutcomeCard({
   done,
   attempts,
   callbackAt,
-  dueCallback,
   onCallback,
   onToggle,
   onBack,
   onForward,
   onNext,
   onCallAgain,
-  onCallDue,
   pilotoId,
   onOpenPiloto,
   onCreatePiloto,
@@ -1845,21 +1831,18 @@ function OutcomeCard({
   done: string[]
   attempts: number
   callbackAt: string
-  dueCallback: ColdCall | null
   onCallback: (value: string) => void
   onToggle: (stepId: string) => void
   onBack: () => void
   onForward?: () => void
   onNext: () => void
   onCallAgain: () => void
-  onCallDue: () => void
   pilotoId: string | null
   onOpenPiloto: (pilotoId: string) => void
   onCreatePiloto: () => void
 }) {
   const info = CALL_OUTCOMES[outcome]
   const hasWhatsapp = Boolean((notes.whatsapp ?? '').trim())
-  const due = dueCallback ? callbackWhen(dueCallback) : null
   const agendaTitle = agendaEventTitle(notes)
 
   const summary: Record<CallOutcome, ReactNode> = {
@@ -2003,15 +1986,6 @@ function OutcomeCard({
 
       <div className="mt-7 border-t pt-5" style={{ borderColor: 'var(--rt-rule)' }}>
         <p className="mb-3 text-sm" style={{ color: 'var(--rt-muted)' }}>
-          {dueCallback && due ? (
-            <>
-              Retorno na hora: <strong className="font-semibold text-foreground">{dueCallback.notes.empresa || 'Sem nome'}</strong>,{' '}
-              <span className="tabular-nums" style={{ color: due.overdue ? 'var(--c3-fg)' : undefined }}>
-                {due.text}
-              </span>
-              .{' '}
-            </>
-          ) : null}
           A ligação já está salva. A próxima mantém o nicho e a cidade.
         </p>
         <div className="flex flex-wrap gap-2.5">
@@ -2022,15 +1996,6 @@ function OutcomeCard({
           >
             Próxima ligação
           </button>
-          {dueCallback ? (
-            <button
-              type="button"
-              onClick={onCallDue}
-              className="whitespace-nowrap rounded-md border border-border px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-surface-2"
-            >
-              Ligar pro retorno
-            </button>
-          ) : null}
           {outcome !== 'agendou' ? (
             <button
               type="button"

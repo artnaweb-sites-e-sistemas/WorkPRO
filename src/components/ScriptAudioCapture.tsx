@@ -44,6 +44,7 @@ function setStageRecording(stageKey: string, blob: Blob, transcript = '') {
 
 type CardCtx = {
   stageKey: string
+  stageIndex: number
   captureKeys: string[]
   cardTitle: string
   cardGoal: string
@@ -51,17 +52,21 @@ type CardCtx = {
   leadName: string
 }
 
+type ExtractOpts = { overwrite: boolean }
+type NotesCallback = (notes: Record<string, string>, opts: ExtractOpts) => void
+
 /**
  * Sessão global: sobrevive a Próxima/Anterior e às duas UIs.
- * Extract só no envio manual. Após enviar, Próxima recomeça a gravação sozinha.
+ * Extract só no envio manual ou ao sair da ficha (segundo plano, sem sobrescrever).
  */
 const session = {
   phase: 'idle' as Phase,
   recorder: null as MediaRecorder | null,
-  chunks: [] as Blob[],
+  /** Chunks do gravador ativo (array local do beginRecorder). */
+  recorderChunks: null as Blob[] | null,
   startedAt: 0,
   elapsed: 0,
-  /** Depois de um envio (ou gravação ativa), Próxima auto-inicia gravação. */
+  /** Depois de um envio (ou gravação ativa), avançar pode auto-iniciar gravação. */
   continueOnNext: false,
   hint: '',
   error: '',
@@ -70,10 +75,16 @@ const session = {
 }
 
 const sessionListeners = new Set<() => void>()
-let notesCallback: ((notes: Record<string, string>) => void) | null = null
+let notesCallback: NotesCallback | null = null
+let latestNotes: Record<string, string> = {}
+let rotateSeq = 0
 
 function bumpSession() {
   sessionListeners.forEach((listener) => listener())
+}
+
+function isAnswered(keys: string[]): boolean {
+  return keys.length > 0 && keys.every((k) => (latestNotes[k] ?? '').trim() !== '')
 }
 
 function formatElapsed(ms: number): string {
@@ -90,22 +101,18 @@ function clearTickTimer() {
   }
 }
 
-async function stopRecorderToBlob(recorder: MediaRecorder): Promise<Blob | null> {
+async function stopRecorderToBlob(recorder: MediaRecorder, chunks: Blob[]): Promise<Blob | null> {
   return new Promise((resolve) => {
     recorder.onstop = () => {
       const type = recorder.mimeType || 'audio/webm'
-      const blob = new Blob(session.chunks, { type })
+      const blob = new Blob(chunks, { type })
       resolve(blob.size ? blob : null)
     }
     recorder.onerror = () => resolve(null)
     try {
       if (recorder.state !== 'inactive') recorder.stop()
       else {
-        resolve(
-          session.chunks.length
-            ? new Blob(session.chunks, { type: recorder.mimeType || 'audio/webm' })
-            : null,
-        )
+        resolve(chunks.length ? new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }) : null)
       }
     } catch {
       resolve(null)
@@ -121,15 +128,17 @@ function startTickTimer() {
   }, 250)
 }
 
-function beginRecorder(stream: MediaStream) {
+function beginRecorder(stream: MediaStream): { recorder: MediaRecorder; chunks: Blob[] } {
   const mimeType = pickRecorderMimeType()
   const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
-  session.chunks = []
+  const chunks: Blob[] = []
   recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) session.chunks.push(event.data)
+    if (event.data.size > 0) chunks.push(event.data)
   }
   session.recorder = recorder
+  session.recorderChunks = chunks
   recorder.start(1000)
+  return { recorder, chunks }
 }
 
 function startRecordingWithStream(stream: MediaStream, ctx: CardCtx, hint: string) {
@@ -148,14 +157,18 @@ function startRecordingWithStream(stream: MediaStream, ctx: CardCtx, hint: strin
 async function extractBlobForCtx(
   ctx: CardCtx,
   blob: Blob,
-  source: 'manual' | 'next' = 'manual',
+  source: 'manual' | 'leave' | 'ended',
 ): Promise<void> {
+  const background = source === 'leave' || source === 'ended'
+  const overwrite = source === 'manual'
+
   if (!ctx.captureKeys.length || blob.size < MIN_FINAL_BYTES) {
     if (blob.size >= MIN_FINAL_BYTES) {
       setStageRecording(ctx.stageKey, blob, recordingsByStage.get(ctx.stageKey)?.transcript ?? '')
     }
-    if (!ctx.captureKeys.length) {
-      session.hint = source === 'next' ? '' : 'Sem campos nesta ficha.'
+    if (!ctx.captureKeys.length && source === 'manual') {
+      session.hint = 'Sem campos nesta ficha.'
+      if (!background) bumpSession()
     }
     return
   }
@@ -173,26 +186,47 @@ async function extractBlobForCtx(
       leadName: ctx.leadName,
     })
     setStageRecording(ctx.stageKey, blob, transcript)
-    notesCallback?.(notes)
-    const filled = Object.entries(notes).filter(([, value]) => value.trim())
-    if (filled.length) {
-      const base = `Preencheu ${filled.length} campo${filled.length > 1 ? 's' : ''}.`
-      session.hint =
-        source === 'next' ? `${base} (ficha anterior)` : `${base} Próxima já grava sozinha.`
-    } else {
-      session.hint =
-        source === 'next'
-          ? 'Ficha anterior: sem resposta clara do lead.'
-          : 'Sem resposta clara do lead. Próxima ainda assim pode gravar de novo.'
+
+    const filtered: Record<string, string> = {}
+    for (const key of ctx.captureKeys) {
+      const value = (notes[key] ?? '').trim()
+      if (!value) continue
+      if (!overwrite && (latestNotes[key] ?? '').trim() !== '') continue
+      filtered[key] = value
     }
+
+    const aiHadAnswer = ctx.captureKeys.some((key) => (notes[key] ?? '').trim() !== '')
+    const filledCount = Object.keys(filtered).length
+    notesCallback?.(filtered, { overwrite })
+
+    let hint = ''
+    if (source === 'manual') {
+      hint = filledCount
+        ? `Preencheu ${filledCount} campo${filledCount > 1 ? 's' : ''}. Próxima já grava sozinha.`
+        : 'Sem resposta clara do lead. Próxima ainda assim pode gravar de novo.'
+    } else if (filledCount > 0) {
+      hint = `Preencheu ${filledCount} campo${filledCount > 1 ? 's' : ''} em "${ctx.cardTitle}".`
+    } else if (aiHadAnswer) {
+      hint = `"${ctx.cardTitle}" já tinha resposta; nada foi trocado.`
+    } else {
+      hint = `"${ctx.cardTitle}": sem resposta clara do lead.`
+    }
+    if (source === 'ended') {
+      hint = `Áudio da call desconectado. ${hint}`
+    }
+
+    session.hint = hint
+    session.error = ''
+    bumpSession()
   } catch (err) {
     console.error('[ScriptAudioCapture] extract', err)
     setStageRecording(ctx.stageKey, blob, '')
     session.error =
-      source === 'next'
-        ? 'Não deu pra extrair a ficha anterior. A gravação ficou salva.'
-        : 'Não deu pra extrair agora. A gravação ficou salva.'
+      source === 'manual'
+        ? 'Não deu pra extrair agora. A gravação ficou salva.'
+        : `Não deu pra extrair "${ctx.cardTitle}". A gravação ficou salva.`
     session.hint = ''
+    bumpSession()
   }
 }
 
@@ -205,27 +239,29 @@ async function rotateToStage(next: CardCtx) {
     return
   }
 
+  const seq = ++rotateSeq
+  const forward = !prev || next.stageIndex > prev.stageIndex
   const wasRecording = session.phase === 'recording' && session.recorder
   const shouldAutoStart =
+    forward &&
     Boolean(sharedCapture?.stream) &&
     next.captureKeys.length > 0 &&
-    (wasRecording || session.continueOnNext)
+    (wasRecording || session.continueOnNext) &&
+    !isAnswered(next.captureKeys)
 
-  // Esqueceu de enviar: ao ir pra Próxima, manda a gravação da ficha atual.
   if (wasRecording && prev) {
     const recorder = session.recorder!
+    const chunks = session.recorderChunks ?? []
     session.recorder = null
+    session.recorderChunks = null
     clearTickTimer()
-    session.phase = 'processing'
-    session.hint = 'Enviando a ficha anterior…'
-    bumpSession()
-
-    const blob = await stopRecorderToBlob(recorder)
-    session.chunks = []
+    const blob = await stopRecorderToBlob(recorder, chunks)
     if (blob && blob.size >= MIN_FINAL_BYTES) {
-      await extractBlobForCtx(prev, blob, 'next')
+      void extractBlobForCtx(prev, blob, 'leave')
     }
   }
+
+  if (seq !== rotateSeq) return
 
   session.ctx = next
 
@@ -238,14 +274,18 @@ async function rotateToStage(next: CardCtx) {
     return
   }
 
-  if (session.phase === 'recording' || session.phase === 'processing') {
-    session.phase = 'idle'
-    session.elapsed = 0
-  }
-  if (!session.hint) {
-    session.hint = session.continueOnNext && next.captureKeys.length
-      ? 'Áudio conectado. Clique em Gravar ou avance com a sessão ativa.'
-      : ''
+  session.phase = 'idle'
+  session.elapsed = 0
+
+  const connected = Boolean(sharedCapture?.stream?.getAudioTracks().some((t) => t.readyState === 'live'))
+  if (connected && next.captureKeys.length && isAnswered(next.captureKeys)) {
+    session.hint = 'Esta ficha já tem resposta. Para regravar, clique em Gravar: só os campos dela mudam.'
+  } else if (connected && !forward && next.captureKeys.length) {
+    session.hint = 'Voltou uma ficha: a gravação fica parada. Clique em Gravar se quiser regravar.'
+  } else if (session.continueOnNext && next.captureKeys.length) {
+    session.hint = 'Áudio conectado. Clique em Gravar ou avance com a sessão ativa.'
+  } else {
+    session.hint = ''
   }
   bumpSession()
 }
@@ -349,21 +389,25 @@ function AudioLevelMeter({ stream, active }: { stream: MediaStream | null; activ
 
 export function ScriptAudioCapture({
   stageKey,
+  stageIndex,
   captureKeys,
   cardTitle,
   cardGoal,
   company,
   leadName,
+  notes,
   onExtracted,
   compact = false,
 }: {
   stageKey: string
+  stageIndex: number
   captureKeys: string[]
   cardTitle: string
   cardGoal: string
   company: string
   leadName: string
-  onExtracted: (notes: Record<string, string>) => void
+  notes: Record<string, string>
+  onExtracted: NotesCallback
   compact?: boolean
 }) {
   const [, setTick] = useState(0)
@@ -417,11 +461,16 @@ export function ScriptAudioCapture({
     }
   }, [stageKey])
 
+  useEffect(() => {
+    latestNotes = notes
+  }, [notes])
+
   const captureKeysKey = captureKeys.join(',')
 
   useEffect(() => {
     void rotateToStage({
       stageKey,
+      stageIndex,
       captureKeys,
       cardTitle,
       cardGoal,
@@ -429,7 +478,7 @@ export function ScriptAudioCapture({
       leadName,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- captura estabilizada por join
-  }, [stageKey, captureKeysKey, cardTitle, cardGoal, company, leadName])
+  }, [stageKey, stageIndex, captureKeysKey, cardTitle, cardGoal, company, leadName])
 
   function disconnectStream() {
     void stopRecordingSession({ mode: 'discard' })
@@ -495,13 +544,25 @@ export function ScriptAudioCapture({
 
       displayStream.getAudioTracks().forEach((track) =>
         track.addEventListener('ended', () => {
-          if (session.phase === 'recording') {
-            void stopRecordingSession({ mode: 'send' })
-          } else {
+          void (async () => {
+            if (session.phase === 'recording' && session.recorder) {
+              const recorder = session.recorder
+              const chunks = session.recorderChunks ?? []
+              const ctx = session.ctx
+              session.recorder = null
+              session.recorderChunks = null
+              clearTickTimer()
+              const blob = await stopRecorderToBlob(recorder, chunks)
+              if (ctx && blob && blob.size >= MIN_FINAL_BYTES) {
+                void extractBlobForCtx(ctx, blob, 'ended')
+              }
+            }
             disconnectStream()
-            session.hint = 'Áudio da call desconectado.'
-            bumpSession()
-          }
+            if (!session.hint) {
+              session.hint = 'Áudio da call desconectado.'
+              bumpSession()
+            }
+          })()
         }),
       )
 
@@ -538,7 +599,7 @@ export function ScriptAudioCapture({
     try {
       startRecordingWithStream(
         stream,
-        { stageKey, captureKeys, cardTitle, cardGoal, company, leadName },
+        { stageKey, stageIndex, captureKeys, cardTitle, cardGoal, company, leadName },
         'Gravando — envie quando o lead responder.',
       )
     } catch (err) {
@@ -552,8 +613,10 @@ export function ScriptAudioCapture({
   async function stopRecordingSession(opts: { mode: 'send' | 'stop' | 'discard' }) {
     clearTickTimer()
     const recorder = session.recorder
+    const chunks = session.recorderChunks ?? []
     const ctx = session.ctx
     session.recorder = null
+    session.recorderChunks = null
 
     if (!recorder) {
       if (opts.mode === 'stop' || opts.mode === 'discard') {
@@ -562,7 +625,6 @@ export function ScriptAudioCapture({
       }
       session.phase = 'idle'
       session.elapsed = 0
-      session.chunks = []
       bumpSession()
       return
     }
@@ -573,8 +635,7 @@ export function ScriptAudioCapture({
       bumpSession()
     }
 
-    const blob = await stopRecorderToBlob(recorder)
-    session.chunks = []
+    const blob = await stopRecorderToBlob(recorder, chunks)
 
     if (opts.mode === 'discard') {
       session.phase = 'idle'
@@ -597,7 +658,6 @@ export function ScriptAudioCapture({
       return
     }
 
-    // mode === 'send' — único momento explícito que chama a IA
     if (!blob || blob.size < MIN_FINAL_BYTES) {
       session.phase = 'idle'
       session.elapsed = 0
@@ -617,7 +677,6 @@ export function ScriptAudioCapture({
 
     await extractBlobForCtx(ctx, blob, 'manual')
     session.continueOnNext = true
-
     session.phase = 'idle'
     session.elapsed = 0
     bumpSession()

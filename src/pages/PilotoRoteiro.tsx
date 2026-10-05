@@ -597,12 +597,18 @@ export default function PilotoRoteiro() {
 
   function go(next: number) {
     const target = Math.max(0, Math.min(cards.length - 1, next))
-    if (target !== index) {
-      polishCardNotes(card)
-    }
     setScript((current) => ({ ...current, cardIndex: target }))
     window.scrollTo({ top: 0 })
   }
+
+  const prevIndexRef = useRef(index)
+  useEffect(() => {
+    const prev = prevIndexRef.current
+    if (prev === index) return
+    const left = cards[prev]
+    if (left) polishCardNotes(left)
+    prevIndexRef.current = index
+  }, [index, cards])
 
   const goPrev = useCallback(() => {
     setScript((current) => {
@@ -654,17 +660,21 @@ export default function PilotoRoteiro() {
     setScript((current) => ({ ...current, notes: { ...current.notes, [key]: value } }))
   }
 
-  function applyExtractedNotes(extracted: Record<string, string>) {
-    // Aplica por chave global — a gravação continua entre fichas (Próxima).
+  function applyExtractedNotes(extracted: Record<string, string>, opts: { overwrite: boolean }) {
     setScript((current) => {
       const notes = { ...current.notes }
+      const settled = { ...current.settled }
+      const raw = { ...current.raw }
       for (const [key, value] of Object.entries(extracted)) {
         const trimmed = value.trim()
         if (!trimmed) continue
         if (!SCRIPT_CAPTURES[key]) continue
+        if (!opts.overwrite && (current.notes[key] ?? '').trim() !== '') continue
         notes[key] = trimmed
+        settled[key] = trimmed
+        delete raw[key]
       }
-      return { ...current, notes }
+      return { ...current, notes, settled, raw }
     })
   }
 
@@ -788,11 +798,13 @@ export default function PilotoRoteiro() {
           <aside className="grid min-w-0 gap-5 lg:sticky lg:top-20">
             <ScriptAudioCapture
               stageKey={`card-${index}`}
+              stageIndex={index}
               captureKeys={card.capture ?? []}
               cardTitle={card.title}
               cardGoal={card.goal}
               company={(notes.empresa ?? '').trim() || leadName}
               leadName={(notes.nome ?? '').trim()}
+              notes={notes}
               onExtracted={applyExtractedNotes}
             />
             {card.capture?.length ? (

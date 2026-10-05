@@ -133,13 +133,19 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       title: 'Como é hoje',
       goal: 'Entender o que ele faz e plantar uma dúvida.',
       say: [
-        '@hoje Hoje, de onde vêm os seus clientes novos?',
+        '@hoje Pra chegar nisso, quero entender como é hoje. De onde vêm os seus clientes novos?',
         'Há quanto tempo é assim?',
         'Uma curiosidade: o que te fez escolher {hoje}?#Tom de curiosidade, não de crítica.',
       ],
       expect: 'Indicação, post impulsionado, boca a boca.',
       capture: ['hoje'],
       adapt: [
+        {
+          target: 0,
+          from: ['obj'],
+          brief:
+            'Retomar em poucas palavras o objetivo que ele acabou de contar, com as palavras dele, e emendar na pergunta de onde vêm os clientes novos hoje. Uma pergunta só. Ex.: "Pra parar de depender de indicação, quero entender o hoje: de onde vêm os seus clientes novos?"',
+        },
         {
           target: 2,
           from: ['hoje'],
@@ -156,7 +162,7 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       title: 'O problema',
       goal: 'Descer do genérico até o pessoal.',
       say: [
-        'Me conta como tá o movimento hoje. Tem mês bom e mês fraco?',
+        'Entendi. E vindo por esse caminho, como tá o movimento? Tem mês bom e mês fraco?',
         'Num mês fraco, quantos clientes novos entram, mais ou menos? E num bom?',
         '@dor E quando o mês é fraco, o que isso muda no seu dia a dia?',
         'E o que você costuma fazer quando percebe que o mês vai ser fraco?#Pergunta pra ganhar tempo enquanto você anota.',
@@ -164,25 +170,41 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       ],
       expect: 'Um exemplo concreto e um número.',
       capture: ['dor'],
+      adapt: [
+        {
+          target: 0,
+          from: ['hoje'],
+          brief:
+            'Retomar o canal que ele acabou de citar pelo nome simples (as indicações, o Instagram, o boca a boca) e perguntar se, vindo por ele, o movimento é constante ou tem mês bom e mês fraco. Uma pergunta só. Ex.: "E vindo só pelas indicações, o movimento é constante ou tem mês bom e mês fraco?"',
+        },
+      ],
     },
     {
       part: 0,
       title: 'O WhatsApp',
       goal: 'Achar o buraco do atendimento.',
       say: [
-        'Quando alguém chama perguntando o preço, quanto tempo leva pra responder?',
+        'Num mês fraco, cada contato conta. Quando alguém chama perguntando o preço, quanto tempo leva pra responder?',
         '@whats Quem responde? E quantos somem depois do preço?',
         'E quem some, alguém chega a chamar de volta depois?#Pergunta pra ganhar tempo enquanto você anota.',
       ],
       expect: '"Demora", "eu mesmo respondo quando dá", "muita gente some".',
       capture: ['whats'],
+      adapt: [
+        {
+          target: 0,
+          from: ['dor'],
+          brief:
+            'Ligar o problema que ele acabou de contar ao valor de cada contato que chega e perguntar quanto tempo leva pra responder quem chama perguntando o preço. Uma pergunta só. Ex.: "Se no mês fraco você fica correndo atrás de cliente, quem chama já vale muito. Quanto tempo leva pra responder?"',
+        },
+      ],
     },
     {
       part: 0,
       title: 'O que está faltando',
       goal: 'Ele mesmo diz o que falta, sem culpar a crise.',
       say: [
-        '@falta Hoje os clientes chegam por {hoje}. O que você acha que falta pra eles chegarem todo mês, e não só de vez em quando?',
+        '@falta Então tem gente chegando e se perdendo no caminho. Hoje os clientes chegam por {hoje}. O que você acha que falta pra eles chegarem todo mês, e não só de vez em quando?',
         'E isso é algo que você consegue fazer sozinho, no dia a dia, ou falta tempo pra isso?',
       ],
       expect: '"Falta alguém cuidando disso", "não tenho tempo", "não sei mexer com anúncio".',
@@ -190,8 +212,10 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       adapt: [
         {
           target: 0,
-          from: ['hoje'],
-          brief: 'Lembrar como os clientes chegam hoje e perguntar o que ele acha que falta pra eles chegarem todo mês, com constância.',
+          from: ['whats'],
+          also: ['hoje'],
+          brief:
+            'Retomar em poucas palavras o que ele acabou de contar do WhatsApp (demora, gente que some) e perguntar o que ele acha que falta pra os clientes chegarem todo mês, e não só de vez em quando. Uma pergunta só.',
         },
       ],
     },
@@ -199,7 +223,7 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       part: 0,
       title: 'O que já tentou',
       goal: 'Tirar a objeção antes do preço e achar o estopim.',
-      say: ['Antes de falar comigo, você já contratou agência ou alguém pra anunciar?'],
+      say: ['Faz sentido. E pra resolver isso, antes de falar comigo, você já contratou agência ou alguém pra anunciar?'],
       branch: [
         ['Se sim', '@estopim Como foi? Que resultado teve? Por que você acha que não funcionou?'],
         ['Se não', '@estopim O que te impediu? … E o que mudou de lá pra cá? … Qual foi o estopim pra agir agora?'],
@@ -207,17 +231,33 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       ],
       expect: 'O motivo da última tentativa ter falhado, ou o momento que fez ele agir.',
       capture: ['estopim'],
+      adapt: [
+        {
+          target: 0,
+          from: ['falta'],
+          brief:
+            'Retomar o que ele acabou de dizer que falta e perguntar se, antes de falar com você, ele já contratou agência ou alguém pra anunciar. Uma pergunta só. Ex.: "E pra ter alguém cuidando disso, você já contratou agência ou alguém pra anunciar antes?"',
+        },
+      ],
     },
     {
       part: 0,
       title: 'O que precisa ter',
       goal: 'As palavras dele viram as palavras da oferta.',
       say: [
-        '@crit Na sua opinião, o que um trabalho desses precisa ter pra valer a pena pra você?',
+        '@crit Então desta vez tem que ser diferente. Na sua opinião, o que um trabalho desses precisa ter pra valer a pena pra você?',
         'Só pra ficar claro: você quer {crit}, é isso?',
       ],
       expect: '"Ver resultado em número", "não ter que cuidar de tudo", "alguém que responda rápido".',
       capture: ['crit'],
+      adapt: [
+        {
+          target: 0,
+          from: ['estopim'],
+          brief:
+            'Retomar em poucas palavras o que ele acabou de contar (como foi a última tentativa ou o que o fez agir agora) e perguntar o que um trabalho desses precisa ter pra valer a pena pra ele desta vez. Uma pergunta só.',
+        },
+      ],
     },
     {
       part: 0,
@@ -233,6 +273,12 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       capture: ['numHoje', 'numMeta'],
       adapt: [
         {
+          target: 0,
+          from: ['crit'],
+          brief:
+            'Pedir pra ele imaginar o trabalho rodando do jeito que acabou de descrever (o que precisa ter) e perguntar quantos clientes novos por mês ele gostaria de ter. Uma pergunta só. Ex.: "Imagina isso rodando, com você vendo os números todo mês. Quantos clientes novos por mês você gostaria de ter?"',
+        },
+        {
           target: 3,
           from: ['numMeta', 'obj'],
           brief: 'Perguntar o que ele faria de diferente se entrassem essa quantidade de clientes por mês, ligando ao objetivo dele.',
@@ -245,7 +291,7 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       goal: 'É aqui que ele decide. Mude o tom.',
       tone: 'Mais devagar. Mais sério.',
       say: [
-        'Deixa eu te fazer uma pergunta mais direta, {nome}.',
+        'De {numHoje} pra {numMeta} é bastante coisa. Deixa eu te fazer uma pergunta mais direta, {nome}.',
         '@custo Se nada mudar e daqui a seis meses estiver igual a hoje, como fica {obj}?',
         'Faz sentido continuar desse jeito?#Ele precisa dizer o "não" em voz alta.',
         'E por que é importante resolver isso agora, e não mais pra frente?',
@@ -267,10 +313,18 @@ export function buildScriptCards(prices: ScriptPrices): ScriptCard[] {
       title: 'Suporte',
       goal: 'Aliviar a pressão: ele não vai sozinho.',
       say: [
-        'Faz sentido. A gente monta tudo, roda os anúncios e acompanha os números junto com você.',
+        'É justamente pra isso não acontecer que eu tô aqui. A gente monta tudo, roda os anúncios e acompanha os números junto com você.',
         'Da sua parte, é gravar os vídeos e atender quem chegar pronto pra comprar. Você topa trabalhar assim?',
       ],
       expect: '"Sim."',
+      adapt: [
+        {
+          target: 0,
+          from: ['custo'],
+          brief:
+            'Retomar em poucas palavras o que ele acabou de dizer que acontece se nada mudar, dizer que é pra evitar isso que você está ali, e explicar que a gente monta tudo, roda os anúncios e acompanha os números junto com ele. Sem pergunta.',
+        },
+      ],
     },
     {
       part: 0,
