@@ -31,7 +31,10 @@ LIMITES DE CARACTERES — SÃO RÍGIDOS. Conte os caracteres antes de responder 
   3. O cliente conta o problema dele com as próprias palavras.
   4. O atendimento mostra que entendeu, diz que dá para resolver e convida para o próximo passo (agendar, visitar, orçamento).
   Tom natural de conversa, caloroso, sem parecer robô. Nunca diga preço, valor ou prazo de resultado.
-- closingParagraph: parágrafo de encerramento, colocando-se à disposição, em tom próximo. MÁXIMO ${L.closingParagraph} caracteres. Sem despedida e sem assinatura.
+- closingParagraph: o fecho do slide "Vamos começar?", falado direto com o dono, como se você estivesse do lado dele. Duas ou três frases curtas: o que esses 45 dias vão trazer pra ele (descobrir de onde vêm os clientes, com as palavras do negócio) e que você está junto pra começar. MÁXIMO ${L.closingParagraph} caracteres. Sem despedida e sem assinatura.
+  Bom: "Em 45 dias você vai saber de onde vêm os seus alunos e onde vale colocar dinheiro. Qualquer dúvida, é só me chamar que a gente resolve junto."
+  Ruim: "Apresentamos esta estrutura para validar a atração de alunos. Ficamos à disposição para esclarecer pontos técnicos e alinhar os próximos passos."
+  Nunca use "apresentamos", "ficamos à disposição", "esclarecer", "alinhar", "pontos técnicos", "estrutura" nem "validar".
 
 PROIBIÇÕES:
 - Nunca prometa resultado, número de clientes, faturamento, posição no Google ou prazo diferente dos 45 dias.

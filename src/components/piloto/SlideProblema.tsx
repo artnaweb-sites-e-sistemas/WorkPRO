@@ -17,7 +17,7 @@ export function SlideProblema({ input, content, accent, index, total }: SlidePro
       title={
         <span className="block max-w-[980px] text-[50px] leading-[1.08] tracking-[-0.03em]">
           O problema não é falta de cliente. É que o caminho até você tem{' '}
-          <Highlight accent={accent}>buracos</Highlight>.
+          <Highlight accent={accent}>falhas</Highlight>.
         </span>
       }
     >

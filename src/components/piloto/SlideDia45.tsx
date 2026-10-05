@@ -26,7 +26,7 @@ export function SlideDia45({ input, content, accent, index, total }: SlideProps)
       index={index}
       total={total}
       kicker="Dia 45"
-      title="Você decide com números, não com achismo"
+      title="Você decide olhando os números"
     >
       <div className="flex h-full flex-col">
         <div className="grid min-h-0 flex-1 grid-cols-3 gap-6">

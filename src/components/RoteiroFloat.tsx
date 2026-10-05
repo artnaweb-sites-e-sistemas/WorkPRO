@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { SCRIPT_THEME_CSS } from './scriptTheme'
 import { ScriptAudioCapture } from './ScriptAudioCapture'
@@ -6,6 +6,7 @@ import {
   SCRIPT_CAPTURES,
   SCRIPT_PARTS,
   parseKeyQuestion,
+  questionList,
   type ScriptCard,
 } from '../lib/pilotoScript'
 
@@ -122,11 +123,83 @@ function fillLine(text: string, notes: Record<string, string>): ReactNode[] {
   })
 }
 
+export type AdaptState = 'ready' | 'generic' | 'adapting' | null
+
+/** Aviso da fala personalizada, igual ao da tela principal. */
+function AdaptNote({ state, onToggle }: { state: AdaptState; onToggle: () => void }) {
+  if (!state) return null
+  return (
+    <span className="mt-1 block text-[11px]" style={{ color: 'var(--rt-faint)' }}>
+      {state === 'adapting' ? (
+        'Personalizando…'
+      ) : state === 'ready' ? (
+        <>
+          Personalizado ·{' '}
+          <button type="button" className="underline transition-colors hover:text-foreground" onClick={onToggle}>
+            usar a genérica
+          </button>
+        </>
+      ) : (
+        <button type="button" className="underline transition-colors hover:text-foreground" onClick={onToggle}>
+          usar a personalizada
+        </button>
+      )}
+    </span>
+  )
+}
+
+/** "Se ele disser": uma objeção aberta por vez, igual à tela principal. */
+function FloatObjections({ objections, notes }: { objections: [string, string][]; notes: Record<string, string> }) {
+  const [open, setOpen] = useState<number | null>(null)
+  return (
+    <section className="min-w-0">
+      <p className="mb-1 flex items-baseline gap-2 text-[13px] font-semibold text-foreground">
+        Se ele disser
+        <span className="tabular-nums font-normal" style={{ color: 'var(--rt-faint)' }}>
+          {objections.length}
+        </span>
+      </p>
+      <ul>
+        {objections.map(([said, reply], objectionIndex) => {
+          const isOpen = open === objectionIndex
+          return (
+            <li key={said} className="border-t py-2.5 first:border-t-0" style={{ borderColor: 'var(--rt-rule)' }}>
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                onClick={() => setOpen(isOpen ? null : objectionIndex)}
+                className="flex w-full min-w-0 items-center justify-between gap-3 text-left text-[14px] font-semibold text-foreground transition-colors hover:text-accent"
+              >
+                <span className="min-w-0 flex-1">{said}</span>
+                <span aria-hidden className="shrink-0" style={{ color: 'var(--rt-faint)' }}>
+                  {isOpen ? '−' : '+'}
+                </span>
+              </button>
+              {isOpen ? (
+                <p className="mt-2 text-[15px] leading-snug text-foreground">
+                  <FloatLine text={reply} notes={notes} />
+                </p>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+/** Troca a fala pela personalizada, mantendo a dica depois do #. */
+function withAdapted(text: string, adapted: string | null): string {
+  if (!adapted) return text
+  const tip = text.split('#')[1]
+  return tip ? `${adapted}#${tip}` : adapted
+}
+
 function FloatLine({ text, notes }: { text: string; notes: Record<string, string> }) {
   const [main, tip] = text.split('#')
   return (
     <>
-      <span>{fillLine(main, notes)}</span>
+      <span className="whitespace-pre-wrap">{fillLine(main, notes)}</span>
       {tip ? (
         <span className="mt-1 block text-[12px]" style={{ color: 'var(--rt-muted)' }}>
           {tip}
@@ -144,11 +217,18 @@ export function RoteiroFloatPortal({
   notes,
   company,
   leadName,
+  clock,
+  timerRunning,
+  onToggleTimer,
   onPrev,
   onNext,
   onClose,
   onNoteChange,
   onExtracted,
+  adaptedLine,
+  adaptState,
+  onToggleGeneric,
+  objections,
 }: {
   host: Window
   card: ScriptCard
@@ -157,11 +237,22 @@ export function RoteiroFloatPortal({
   notes: Record<string, string>
   company: string
   leadName: string
+  /** cronômetro da reunião, sincronizado com a tela principal */
+  clock: string
+  timerRunning: boolean
+  onToggleTimer: () => void
   onPrev: () => void
   onNext: () => void
   onClose: () => void
   onNoteChange: (key: string, value: string) => void
   onExtracted: (notes: Record<string, string>, opts: { overwrite: boolean }) => void
+  /** fala personalizada pela IA (a mesma da tela principal); null = vale a genérica */
+  adaptedLine: (card: ScriptCard, target: number | 'fale') => string | null
+  /** situação da fala personalizada, para o aviso abaixo dela */
+  adaptState: (card: ScriptCard, target: number | 'fale') => AdaptState
+  onToggleGeneric: (card: ScriptCard, target: number | 'fale') => void
+  /** respostas pras objeções ("Se ele disser"), as mesmas da tela principal */
+  objections: [string, string][]
 }) {
   useEffect(() => {
     function persistSize() {
@@ -205,9 +296,21 @@ export function RoteiroFloatPortal({
           </p>
           <p className="truncate text-sm font-bold">{card.title}</p>
         </div>
-        <span className="tabular-nums text-xs" style={{ color: 'var(--rt-muted)' }}>
-          {index + 1}/{total}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--rt-muted)' }}>
+            <strong className="tabular-nums font-semibold text-foreground">{clock}</strong>
+            <button
+              type="button"
+              onClick={onToggleTimer}
+              className="rounded border border-border px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-white/5"
+            >
+              {timerRunning ? 'Zerar' : 'Iniciar'}
+            </button>
+          </span>
+          <span className="tabular-nums text-xs" style={{ color: 'var(--rt-muted)' }}>
+            {index + 1}/{total}
+          </span>
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
@@ -217,7 +320,7 @@ export function RoteiroFloatPortal({
 
         {card.say ? (
           <ul className="grid gap-3">
-            {card.say.map((line) => {
+            {card.say.map((line, lineIndex) => {
               const parsed = parseKeyQuestion(line)
               return (
                 <li
@@ -230,7 +333,8 @@ export function RoteiroFloatPortal({
                         : 'var(--rt-rule)',
                   }}
                 >
-                  <FloatLine text={parsed.text} notes={notes} />
+                  <FloatLine text={withAdapted(parsed.text, adaptedLine(card, lineIndex))} notes={notes} />
+                  <AdaptNote state={adaptState(card, lineIndex)} onToggle={() => onToggleGeneric(card, lineIndex)} />
                 </li>
               )
             })}
@@ -243,30 +347,57 @@ export function RoteiroFloatPortal({
               <p className="mb-1 text-[10px] font-semibold uppercase" style={{ color: 'var(--rt-faint)' }}>
                 Fale
               </p>
-              <p className="border-l-[3px] border-accent pl-3 text-[15px] leading-snug">
-                <FloatLine text={card.steps.fale} notes={notes} />
+              <p className="border-l-[3px] pl-3 text-[15px] leading-snug" style={{ borderColor: 'var(--rt-rule)' }}>
+                <FloatLine text={withAdapted(card.steps.fale, adaptedLine(card, 'fale'))} notes={notes} />
+                <AdaptNote state={adaptState(card, 'fale')} onToggle={() => onToggleGeneric(card, 'fale')} />
               </p>
+              {card.steps.etapas ? (
+                <ul className="mt-2.5 grid gap-2.5">
+                  {card.steps.etapas.map(([label, text]) => (
+                    <li key={label} className="border-l-[3px] pl-3 text-[15px] leading-snug" style={{ borderColor: 'var(--rt-rule)' }}>
+                      <span className="mb-0.5 block text-[11px] font-semibold" style={{ color: 'var(--rt-faint)' }}>
+                        {label}
+                      </span>
+                      <FloatLine text={text} notes={notes} />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
-            <div>
-              <p className="mb-1 text-[10px] font-semibold uppercase" style={{ color: 'var(--rt-faint)' }}>
-                Mostre
-              </p>
-              <ul className="grid gap-1 pl-3 text-[13px]" style={{ color: 'var(--rt-muted)' }}>
-                {card.steps.mostre.map((item) => (
-                  <li key={item}>
-                    <FloatLine text={item} notes={notes} />
-                  </li>
-                ))}
-              </ul>
-            </div>
+            {card.steps.mostre.length ? (
+              <div>
+                <p className="mb-1 text-[10px] font-semibold uppercase" style={{ color: 'var(--rt-faint)' }}>
+                  Mostre
+                </p>
+                <ul className="grid gap-1 pl-3 text-[13px]" style={{ color: 'var(--rt-muted)' }}>
+                  {card.steps.mostre.map((item) => (
+                    <li key={item}>
+                      <FloatLine text={item} notes={notes} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {card.steps.pergunte ? (
               <div>
                 <p className="mb-1 text-[10px] font-semibold uppercase" style={{ color: 'var(--rt-faint)' }}>
                   Pergunte
                 </p>
-                <p className="border-l-[3px] border-accent pl-3 text-[15px] leading-snug">
-                  <FloatLine text={card.steps.pergunte} notes={notes} />
-                </p>
+                <div className="grid gap-2.5">
+                  {questionList(card.steps.pergunte).map((line) => {
+                    const parsed = parseKeyQuestion(line)
+                    const color = parsed.key ? SCRIPT_CAPTURES[parsed.key]?.color : null
+                    return (
+                      <p
+                        key={line}
+                        className="border-l-[3px] pl-3 text-[15px] leading-snug"
+                        style={{ borderColor: color ? `var(--${color}-fg)` : 'rgb(var(--color-accent-rgb))' }}
+                      >
+                        <FloatLine text={parsed.text} notes={notes} />
+                      </p>
+                    )
+                  })}
+                </div>
               </div>
             ) : null}
           </div>
@@ -277,8 +408,8 @@ export function RoteiroFloatPortal({
             {card.beats.map(([label, raw]) => {
               const parsed = parseKeyQuestion(raw)
               return (
-                <li key={label} className="text-[14px] leading-snug">
-                  <span className="mb-0.5 block text-[10px] uppercase" style={{ color: 'var(--rt-faint)' }}>
+                <li key={label} className="border-l-[3px] pl-3 text-[15px] leading-snug" style={{ borderColor: 'var(--rt-rule)' }}>
+                  <span className="mb-0.5 block text-[11px] font-semibold" style={{ color: 'var(--rt-faint)' }}>
                     {label}
                   </span>
                   <FloatLine text={parsed.text} notes={notes} />
@@ -288,11 +419,32 @@ export function RoteiroFloatPortal({
           </ul>
         ) : null}
 
-        {card.objections ? (
-          <p className="text-[13px]" style={{ color: 'var(--rt-muted)' }}>
-            Se travar: use as objeções na tela principal.
-          </p>
+        {card.branch ? (
+          <ul className="grid gap-2.5">
+            {card.branch.map(([label, raw]) => {
+              const parsed = parseKeyQuestion(raw)
+              return (
+                <li
+                  key={label}
+                  className="border-l-[3px] pl-3 text-[14px] leading-snug"
+                  style={{
+                    borderColor:
+                      parsed.key && SCRIPT_CAPTURES[parsed.key]?.color
+                        ? `var(--${SCRIPT_CAPTURES[parsed.key]!.color}-fg)`
+                        : 'var(--rt-rule)',
+                  }}
+                >
+                  <strong className="font-semibold text-foreground">{label}:</strong>{' '}
+                  <span style={{ color: 'var(--rt-muted)' }}>
+                    <FloatLine text={parsed.text} notes={notes} />
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
         ) : null}
+
+        {card.objections ? <FloatObjections objections={objections} notes={notes} /> : null}
 
         {captureKeys.length ? (
           <div className="space-y-3 border-t pt-3" style={{ borderColor: 'var(--rt-rule)' }}>

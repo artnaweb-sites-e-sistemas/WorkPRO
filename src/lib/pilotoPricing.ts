@@ -7,29 +7,25 @@ export interface PilotoPlan {
   id: PilotoPlanId
   name: string
   channels: string[]
+  /** trabalho da agência neste plano: preço "de" e fechando na reunião */
+  agencyListCents: number
+  agencyDealCents: number
   adBudgetCents: number
   totalCents: number
   highlighted: boolean
   pitch: string
 }
 
-type PilotoPlanTemplate = Omit<PilotoPlan, 'adBudgetCents' | 'totalCents'>
+type PilotoPlanTemplate = Omit<PilotoPlan, 'agencyListCents' | 'agencyDealCents' | 'adBudgetCents' | 'totalCents'>
 
-/** Ordem de exibição: o recomendado fica no centro. Valores vêm do orçamento do piloto. */
+/** Ordem de exibição: escada do menor pro maior, com o recomendado (Completo) por último. Valores vêm do orçamento do piloto. */
 const PILOTO_PLAN_TEMPLATES: PilotoPlanTemplate[] = [
   {
     id: 'meta',
-    name: 'Piloto Meta',
+    name: 'Piloto Instagram',
     channels: ['Meta Ads'],
     highlighted: false,
-    pitch: 'Para testar vídeo e alcance no Instagram e no Facebook.',
-  },
-  {
-    id: 'completo',
-    name: 'Piloto Completo',
-    channels: ['Meta Ads', 'Google Ads'],
-    highlighted: true,
-    pitch: 'Os dois canais lado a lado. O único que mostra onde vale investir.',
+    pitch: 'Para testar vídeo e alcance no Instagram.',
   },
   {
     id: 'google',
@@ -38,16 +34,26 @@ const PILOTO_PLAN_TEMPLATES: PilotoPlanTemplate[] = [
     highlighted: false,
     pitch: 'Para capturar quem já está procurando o que você vende.',
   },
+  {
+    id: 'completo',
+    name: 'Piloto Completo',
+    channels: ['Meta Ads', 'Google Ads'],
+    highlighted: true,
+    pitch: 'Os dois canais lado a lado. O único que mostra onde vale investir.',
+  },
 ]
 
 export type ContinuationPlanId = 'site' | 'site-whatsapp' | 'completo'
 
 /** Orçamento de cada piloto: muda aqui, muda nos slides, no PDF e no roteiro. */
 export interface PilotoPricing {
-  /** agência sem desconto (o preço "de") */
+  /** agência sem desconto (o preço "de") nos planos de um canal */
   agencyListCents: number
-  /** agência fechando na reunião */
+  /** agência fechando na reunião nos planos de um canal */
   agencyDealCents: number
+  /** agência no Completo (dois canais pra gerir): sem desconto e fechando na reunião */
+  completoListCents: number
+  completoDealCents: number
   adBudgetPerChannelCents: number
   /** mensalidade de cada plano de continuidade */
   continuationMonthlyCents: Record<ContinuationPlanId, number>
@@ -56,6 +62,8 @@ export interface PilotoPricing {
 export const DEFAULT_PILOTO_PRICING: PilotoPricing = {
   agencyListCents: 500000,
   agencyDealCents: 300000,
+  completoListCents: 600000,
+  completoDealCents: 400000,
   adBudgetPerChannelCents: 100000,
   continuationMonthlyCents: { site: 25000, 'site-whatsapp': 99700, completo: 300000 },
 }
@@ -73,9 +81,15 @@ export function normalizePilotoPricing(raw: unknown): PilotoPricing {
       ? (record.continuationMonthlyCents as Record<string, unknown>)
       : {}
   const defaults = DEFAULT_PILOTO_PRICING
+  const agencyListCents = centsOr(record.agencyListCents, defaults.agencyListCents)
+  const agencyDealCents = centsOr(record.agencyDealCents, defaults.agencyDealCents)
+  // Piloto de antes do preço próprio do Completo: R$ 1.000 a mais que o de um canal, mantendo o mesmo desconto.
+  const completoGap = defaults.completoDealCents - defaults.agencyDealCents
   return {
-    agencyListCents: centsOr(record.agencyListCents, defaults.agencyListCents),
-    agencyDealCents: centsOr(record.agencyDealCents, defaults.agencyDealCents),
+    agencyListCents,
+    agencyDealCents,
+    completoListCents: centsOr(record.completoListCents, agencyListCents + completoGap),
+    completoDealCents: centsOr(record.completoDealCents, agencyDealCents + completoGap),
     adBudgetPerChannelCents: centsOr(record.adBudgetPerChannelCents, defaults.adBudgetPerChannelCents),
     continuationMonthlyCents: {
       site: centsOr(monthly.site, defaults.continuationMonthlyCents.site),
@@ -85,17 +99,37 @@ export function normalizePilotoPricing(raw: unknown): PilotoPricing {
   }
 }
 
-/** Planos com os valores do orçamento: agência + verba de cada canal. */
+/** Nome do canal como o dono do negócio fala. A apresentação fala só de Instagram e Google (o Facebook roda junto, sem ser citado). */
+export function channelLabel(channel: string): string {
+  if (channel === 'Meta Ads') return 'Instagram'
+  if (channel === 'Google Ads') return 'Google'
+  return channel
+}
+
+/** Planos com os valores do orçamento: agência do plano + verba de cada canal. */
 export function getPilotoPlans(pricing: PilotoPricing): PilotoPlan[] {
   return PILOTO_PLAN_TEMPLATES.map((plan) => {
+    const completo = plan.id === 'completo'
+    const agencyListCents = completo ? pricing.completoListCents : pricing.agencyListCents
+    const agencyDealCents = completo ? pricing.completoDealCents : pricing.agencyDealCents
     const adBudgetCents = pricing.adBudgetPerChannelCents * plan.channels.length
-    return { ...plan, adBudgetCents, totalCents: pricing.agencyDealCents + adBudgetCents }
+    return { ...plan, agencyListCents, agencyDealCents, adBudgetCents, totalCents: agencyDealCents + adBudgetCents }
   })
 }
 
-/** Desconto de fechar na reunião; zero quando o preço "de" não é maior. */
+/** Desconto de fechar na reunião nos planos de um canal; zero quando o preço "de" não é maior. */
 export function dealSavingsCents(pricing: PilotoPricing): number {
   return Math.max(0, pricing.agencyListCents - pricing.agencyDealCents)
+}
+
+/** Desconto de fechar na reunião no Completo. */
+export function completoSavingsCents(pricing: PilotoPricing): number {
+  return Math.max(0, pricing.completoListCents - pricing.completoDealCents)
+}
+
+/** Desconto de um plano: o que ele economiza fechando na reunião. */
+export function planSavingsCents(plan: PilotoPlan): number {
+  return Math.max(0, plan.agencyListCents - plan.agencyDealCents)
 }
 
 export interface InstallmentBreakdown {
@@ -155,9 +189,9 @@ const CONTINUATION_PLAN_TEMPLATES: Omit<ContinuationPlan, 'monthlyCents'>[] = [
   {
     id: 'site-whatsapp',
     name: 'Site + WhatsApp',
-    includes: ['Tudo do plano Site', 'WhatsApp com IA e gestão dos contatos'],
+    includes: ['Tudo do plano Site', 'WhatsApp com automação e gestão dos contatos'],
     note: null,
-    fit: 'Para seguir atendendo com a IA e sem perder nenhum contato.',
+    fit: 'Para seguir atendendo com a automação e sem perder nenhum contato.',
     highlighted: false,
   },
   {

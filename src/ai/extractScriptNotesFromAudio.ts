@@ -16,10 +16,12 @@ REGRAS DA TRANSCRIÇÃO (campo transcript):
 
 REGRAS DOS CAMPOS DO ROTEIRO:
 - Foque na voz/respostas do cliente (dono), não no discurso do vendedor.
-- Preencha apenas os campos pedidos. Se não houver resposta clara para um campo, deixe string vazia.
+- Preencha apenas os campos pedidos. Cada campo diz o que foi perguntado e o que conta como resposta: use isso para achar a resposta no áudio.
+- Se o lead respondeu ao que o campo pergunta, anote, mesmo que a resposta venha indireta, misturada com outro assunto ou em forma de história (ex.: "teve um mês que eu tirei do bolso pra pagar a conta" responde o que fez ele agir agora).
+- Deixe vazio só quando o lead não falou nada que responda ao campo.
 - Anotação curta, nas palavras do cliente, pronta para caber no roteiro (sem aspas, sem markdown).
 - Números (clientes/mês): só o número ou a quantidade falada de forma curta (ex.: "8", "uns 20").
-- Não invente. Na dúvida, deixe vazio.
+- Não invente nada que o lead não disse.
 - Português do Brasil.`
 
 function buildSchema(keys: string[]) {
@@ -42,6 +44,7 @@ export type ScriptAudioField = {
   key: string
   label: string
   hint: string
+  listen: string
 }
 
 /** Converte o Blob do microfone em base64 (sem prefixo data:). */
@@ -82,7 +85,7 @@ export async function extractScriptNotesFromAudio(params: {
   const keys = params.fields.map((field) => field.key)
   if (!keys.length) return { notes: {}, transcript: '' }
 
-  const fieldLines = params.fields.map((field) => `- ${field.key} (${field.label}): ${field.hint}`)
+  const fieldLines = params.fields.map((field) => `- ${field.key} (${field.label}): ${field.listen} ${field.hint}`)
   const prompt = [
     `FICHA DO ROTEIRO: ${params.cardTitle}`,
     `OBJETIVO DA FICHA: ${params.cardGoal}`,
@@ -129,7 +132,7 @@ export function fieldsFromCaptureKeys(keys: string[]): ScriptAudioField[] {
     .map((key) => {
       const capture: ScriptCapture | undefined = SCRIPT_CAPTURES[key]
       if (!capture) return null
-      return { key, label: capture.label, hint: capture.hint }
+      return { key, label: capture.label, hint: capture.hint, listen: capture.listen }
     })
     .filter((item): item is ScriptAudioField => item != null)
 }

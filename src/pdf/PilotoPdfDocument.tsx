@@ -32,6 +32,7 @@ import {
   continuationFromCents,
   getContinuationPlans,
   getPilotoPlans,
+  channelLabel,
 } from '../lib/pilotoPricing'
 import type { ContinuationPlan, PilotoPlan, PilotoPricing } from '../lib/pilotoPricing'
 import type { PilotoAiContent, PilotoInput, SituationAnswer } from '../types/piloto'
@@ -516,7 +517,7 @@ function PhoneMock({
               <View key={index} style={{ alignSelf: 'flex-end', maxWidth: '86%', marginBottom: 8 }}>
                 {index === 1 ? (
                   <Text style={{ fontFamily: FONT, fontSize: 9, color: SOFT_TEXT, textAlign: 'right', marginBottom: 3 }}>
-                    IA · respondeu em segundos
+                    Automação · respondeu em segundos
                   </Text>
                 ) : null}
                 <View style={{ backgroundColor: rgba(accent, 0.28), borderRadius: 12, borderTopRightRadius: 3, paddingHorizontal: 10, paddingVertical: 7 }}>
@@ -571,9 +572,10 @@ function PlanCard({
   const text = hero ? '#FFFFFF' : BLACK
   const soft = hero ? '#9B9B9B' : SOFT_TEXT
   const ruleColor = hero ? '#2E2E2E' : RULE
+  // Igual ao slide: o número grande é o trabalho da agência; anúncios e total ficam nas linhas.
   const rows = [
-    { label: 'Agência', value: pricing.agencyDealCents },
-    ...plan.channels.map((channel) => ({ label: `Verba ${channel}`, value: pricing.adBudgetPerChannelCents })),
+    ...plan.channels.map((channel) => ({ label: `+ Anúncios no ${channelLabel(channel)}`, value: pricing.adBudgetPerChannelCents })),
+    { label: 'Total no piloto', value: plan.totalCents },
   ]
 
   return (
@@ -597,12 +599,21 @@ function PlanCard({
       <View style={{ flexDirection: hero ? 'row' : 'column', justifyContent: 'space-between', alignItems: hero ? 'flex-end' : 'flex-start' }}>
         <View>
           <Text style={{ fontFamily: FONT, fontWeight: 700, fontSize: hero ? 22 : 17, color: text }}>{plan.name}</Text>
-          <Text style={{ fontFamily: FONT, fontSize: 12.5, color: soft, marginTop: 2 }}>{plan.channels.join(' + ')}</Text>
+          <Text style={{ fontFamily: FONT, fontSize: 12.5, color: soft, marginTop: 2 }}>{plan.channels.map(channelLabel).join(' + ')}</Text>
         </View>
         <Text style={{ fontFamily: FONT, fontWeight: 700, fontSize: hero ? 38 : 28, color: text, marginTop: hero ? 0 : 12 }}>
-          {formatCurrencyBRL(plan.totalCents)}
+          {formatCurrencyBRL(plan.agencyDealCents)}
         </Text>
       </View>
+      <Text style={{ fontFamily: FONT, fontSize: 11.5, color: soft, marginTop: 4, textAlign: hero ? 'right' : 'left' }}>
+        nosso trabalho, fechando na reunião
+        {plan.agencyListCents > plan.agencyDealCents ? (
+          <>
+            {' · de '}
+            <Text style={{ textDecoration: 'line-through', color: '#DC2626' }}>{formatCurrencyBRL(plan.agencyListCents)}</Text>
+          </>
+        ) : null}
+      </Text>
       <View style={{ marginTop: hero ? 16 : 10 }}>
         {rows.map((row) => (
           <View
@@ -738,8 +749,14 @@ export function PilotoPdfDocument({
   const accent = normalizeAccentColor(input.accentColor)
   const onAccent = accentForegroundColor(accent)
   const { pricing } = input
-  const installments = calcInstallments(pricing.agencyDealCents, input.installmentFeeRate)
   const plans = getPilotoPlans(pricing)
+  const completoPlan = plans.find((plan) => plan.id === 'completo') ?? plans[0]
+  const singlePlan = plans.find((plan) => plan.id !== 'completo') ?? plans[0]
+  const completoInstallments = calcInstallments(completoPlan.agencyDealCents, input.installmentFeeRate)
+  const singleInstallments = calcInstallments(singlePlan.agencyDealCents, input.installmentFeeRate)
+  const strike = (cents: number) => (
+    <Text style={{ textDecoration: 'line-through', color: '#DC2626' }}>{formatCurrencyBRL(cents)}</Text>
+  )
   const continuationPlans = getContinuationPlans(pricing)
   const lead = input.leadCompanyName.trim()
 
@@ -826,7 +843,7 @@ export function PilotoPdfDocument({
               textStyle={{ fontFamily: FONT, fontWeight: 700, fontSize: 27, lineHeight: 1.3, color: BLACK }}
               parts={[
                 { text: 'O problema não é falta de cliente. É que o caminho até você tem' },
-                { text: 'buracos', mark: true, suffix: '.' },
+                { text: 'falhas', mark: true, suffix: '.' },
               ]}
             />
           </View>
@@ -1086,10 +1103,15 @@ export function PilotoPdfDocument({
               <View style={P.paymentContent}>
                 <Text style={P.paymentLabel}>Condição de fechamento</Text>
                 <Text style={[P.paymentBody, { fontSize: 16 }]}>
-                  Agência de <Text style={{ textDecoration: 'line-through', color: SOFT_TEXT }}>{formatCurrencyBRL(pricing.agencyListCents)}</Text> por{' '}
-                  <Text style={[P.paymentBodyBold, { fontSize: 16 }]}>{formatCurrencyBRL(pricing.agencyDealCents)}</Text> fechando na reunião. À vista no Pix ou em até 10x
-                  de <Text style={[P.paymentBodyBold, { fontSize: 16 }]}>{formatCurrencyBRL(installments.installmentCents)}</Text> no cartão (total{' '}
-                  {formatCurrencyBRL(installments.totalCents)}).
+                  Nosso trabalho fechando na reunião: Completo
+                  {completoPlan.agencyListCents > completoPlan.agencyDealCents ? <> de {strike(completoPlan.agencyListCents)}</> : null} por{' '}
+                  <Text style={[P.paymentBodyBold, { fontSize: 16 }]}>{formatCurrencyBRL(completoPlan.agencyDealCents)}</Text>, Instagram ou Google
+                  {singlePlan.agencyListCents > singlePlan.agencyDealCents ? <> de {strike(singlePlan.agencyListCents)}</> : null} por{' '}
+                  <Text style={[P.paymentBodyBold, { fontSize: 16 }]}>{formatCurrencyBRL(singlePlan.agencyDealCents)}</Text>. À vista no Pix ou em até 10x no cartão:{' '}
+                  <Text style={[P.paymentBodyBold, { fontSize: 16 }]}>{formatCurrencyBRL(completoInstallments.installmentCents)}</Text> no Completo (total{' '}
+                  {formatCurrencyBRL(completoInstallments.totalCents)}) e{' '}
+                  <Text style={[P.paymentBodyBold, { fontSize: 16 }]}>{formatCurrencyBRL(singleInstallments.installmentCents)}</Text> nos outros (total{' '}
+                  {formatCurrencyBRL(singleInstallments.totalCents)}).
                 </Text>
                 <Text style={[s.small, { marginTop: 8 }]}>{AD_BUDGET_NOTE}</Text>
               </View>

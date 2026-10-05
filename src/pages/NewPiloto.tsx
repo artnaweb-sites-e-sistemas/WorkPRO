@@ -17,6 +17,7 @@ import { sanitizeFilename } from '../lib/filename'
 import {
   DEFAULT_INSTALLMENT_FEE_RATE,
   calcInstallments,
+  completoSavingsCents,
   dealSavingsCents,
   getContinuationPlans,
   getPilotoPlans,
@@ -281,8 +282,13 @@ export default function NewPiloto() {
     () => calcInstallments(pricing.agencyDealCents, input.installmentFeeRate),
     [pricing.agencyDealCents, input.installmentFeeRate],
   )
+  const completoInstallments = useMemo(
+    () => calcInstallments(pricing.completoDealCents, input.installmentFeeRate),
+    [pricing.completoDealCents, input.installmentFeeRate],
+  )
   const plans = useMemo(() => getPilotoPlans(pricing), [pricing])
   const savingsCents = dealSavingsCents(pricing)
+  const completoSavings = completoSavingsCents(pricing)
   const completoPlan = plans.find((plan) => plan.id === 'completo') ?? plans[0]
   const singleChannelPlan = plans.find((plan) => plan.id !== 'completo') ?? plans[0]
   const contentEmpty = isContentEmpty(content)
@@ -797,13 +803,13 @@ export default function NewPiloto() {
               summary={
                 <span className="tabular-nums">
                   Completo {formatCurrencyBRL(completoPlan.totalCents)}
-                  {savingsCents > 0 ? ` · desconto ${formatCurrencyBRL(savingsCents)}` : ''}
+                  {completoSavings > 0 ? ` · desconto ${formatCurrencyBRL(completoSavings)}` : ''}
                 </span>
               }
             >
               <div className="divide-y divide-border">
                 <MoneyRow
-                  label="Agência sem desconto"
+                  label="Instagram ou Google sem desconto"
                   cents={pricing.agencyListCents}
                   onChange={(cents) => patchPricing({ agencyListCents: cents })}
                   error={
@@ -813,9 +819,24 @@ export default function NewPiloto() {
                   }
                 />
                 <MoneyRow
-                  label="Agência fechando na reunião"
+                  label="Instagram ou Google na reunião"
                   cents={pricing.agencyDealCents}
                   onChange={(cents) => patchPricing({ agencyDealCents: cents })}
+                />
+                <MoneyRow
+                  label="Completo sem desconto"
+                  cents={pricing.completoListCents}
+                  onChange={(cents) => patchPricing({ completoListCents: cents })}
+                  error={
+                    pricing.completoListCents > 0 && completoSavings === 0
+                      ? 'Precisa ser maior que o valor na reunião. Sem diferença, o roteiro não fala de desconto.'
+                      : undefined
+                  }
+                />
+                <MoneyRow
+                  label="Completo na reunião"
+                  cents={pricing.completoDealCents}
+                  onChange={(cents) => patchPricing({ completoDealCents: cents })}
                 />
                 <MoneyRow
                   label="Verba de anúncio por canal"
@@ -824,7 +845,7 @@ export default function NewPiloto() {
                 />
               </div>
               <p className="mt-2 text-xs normal-case text-muted-foreground tabular-nums">
-                Meta ou Google {formatCurrencyBRL(singleChannelPlan.totalCents)} · Completo{' '}
+                Total com anúncios: Instagram ou Google {formatCurrencyBRL(singleChannelPlan.totalCents)} · Completo{' '}
                 {formatCurrencyBRL(completoPlan.totalCents)}. Vale nos slides, no PDF e no roteiro.
               </p>
 
@@ -852,7 +873,7 @@ export default function NewPiloto() {
               onToggle={() => setCommercialOpen((value) => !value)}
               summary={
                 <span className="tabular-nums">
-                  10x de {formatCurrencyBRL(installments.installmentCents)} · {input.validityDays} dias
+                  10x de {formatCurrencyBRL(completoInstallments.installmentCents)} no Completo · {input.validityDays} dias
                 </span>
               }
             >
@@ -881,8 +902,10 @@ export default function NewPiloto() {
                 />
               </div>
               <p className="mt-3 text-xs normal-case text-muted-foreground">
-                Taxa da InfinitePay repassada ao cliente. Agência {formatCurrencyBRL(pricing.agencyDealCents)} à vista
-                ou 10x de {formatCurrencyBRL(installments.installmentCents)} (total{' '}
+                Taxa da InfinitePay repassada ao cliente. Completo {formatCurrencyBRL(pricing.completoDealCents)} à vista
+                ou 10x de {formatCurrencyBRL(completoInstallments.installmentCents)} (total{' '}
+                {formatCurrencyBRL(completoInstallments.totalCents)}). Instagram ou Google{' '}
+                {formatCurrencyBRL(pricing.agencyDealCents)} à vista ou 10x de {formatCurrencyBRL(installments.installmentCents)} (total{' '}
                 {formatCurrencyBRL(installments.totalCents)}).
               </p>
 

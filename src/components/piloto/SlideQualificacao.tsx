@@ -58,7 +58,7 @@ function PhoneMock({
             <div key={index} className="max-w-[90%] self-end">
               {index === 1 ? (
                 <p className="mb-1 text-right text-[11px] font-semibold" style={{ color: MUTED }}>
-                  IA · respondeu em segundos
+                  Automação · respondeu em segundos
                 </p>
               ) : null}
               <p
@@ -113,7 +113,7 @@ export function SlideQualificacao({ input, content, accent, index, total }: Slid
       accent={accent}
       index={index}
       total={total}
-      kicker="Atendimento com IA"
+      kicker="Atendimento com automação"
       title="Nenhuma conversa se perde"
     >
       <div className="flex h-full items-center gap-10">

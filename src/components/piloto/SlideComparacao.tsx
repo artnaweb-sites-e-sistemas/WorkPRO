@@ -5,7 +5,7 @@ import type { SlideProps } from './slideTypes'
 const ROW_RULE = '#EDEDEF'
 
 /**
- * Por que a IA aquece melhor. A coluna da IA é o único bloco escuro do slide.
+ * Por que a automação aquece melhor. A coluna da automação é o único bloco escuro do slide.
  * A equipe do cliente não é criticada: é ela quem fecha a venda no fim.
  */
 export function SlideComparacao({ input, content, accent, index, total }: SlideProps) {
@@ -18,7 +18,7 @@ export function SlideComparacao({ input, content, accent, index, total }: SlideP
       index={index}
       total={total}
       kicker="Por que funciona"
-      title="Uma IA treinada para vender, atendendo todo mundo"
+      title="Um atendimento automático, pensado para vender"
     >
       <div className="flex h-full flex-col">
         <div className="grid grid-cols-[1fr_1fr_1.15fr]">
@@ -27,7 +27,7 @@ export function SlideComparacao({ input, content, accent, index, total }: SlideP
             Atendimento comum
           </div>
           <div className="px-7 pb-4 pt-5 text-[16px] font-bold text-white" style={{ backgroundColor: INK }}>
-            IA treinada para vender
+            Com a automação
           </div>
 
           {COMPARISON_ROWS.map((row, rowIndex) => {

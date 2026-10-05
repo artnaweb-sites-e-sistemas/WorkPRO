@@ -16,6 +16,7 @@ REGRAS:
 - MÁXIMO 30 palavras.
 - Antes de responder, leia a frase em voz alta mentalmente: se algum trecho soar estranho ou sem concordância, reescreva.
 - Nunca prometa resultado, número, prazo ou valor que não esteja na fala genérica.
+- Nunca use dois-pontos. Em conversa falada eles soam como leitura: troque por ponto, vírgula ou uma pergunta.
 - Sem aspas, sem emoji, sem markdown.`
 
 const SCHEMA = {

@@ -5,23 +5,28 @@ import { Spinner } from '../components/ui'
 import { SCRIPT_THEME_CSS } from '../components/scriptTheme'
 import { ScriptAudioCapture } from '../components/ScriptAudioCapture'
 import { openRoteiroFloatWindow, RoteiroFloatPortal } from '../components/RoteiroFloat'
+import type { AdaptState } from '../components/RoteiroFloat'
 import { brl } from '../components/piloto/deck'
 import {
   DEFAULT_INSTALLMENT_FEE_RATE,
   DEFAULT_PILOTO_PRICING,
   INSTALLMENT_COUNT,
   calcInstallments,
+  completoSavingsCents,
   dealSavingsCents,
+  normalizePilotoPricing,
 } from '../lib/pilotoPricing'
 import type { PilotoPricing } from '../lib/pilotoPricing'
 import {
   SCRIPT_CAPTURES,
   SCRIPT_PARTS,
+  ANGLE_SPOKEN_BRIEF,
   buildScriptCards,
   buildScriptObjections,
   parseKeyQuestion,
+  questionList,
 } from '../lib/pilotoScript'
-import type { ScriptAdapt, ScriptCard, ScriptPrices } from '../lib/pilotoScript'
+import type { ScriptAdapt, ScriptCard, ScriptDeck, ScriptPrices } from '../lib/pilotoScript'
 import { personalizeScriptLine } from '../ai/personalizeScriptLine'
 import { polishScriptNote } from '../ai/polishScriptNote'
 import { getPiloto, updatePilotoScript } from '../services/pilotos'
@@ -30,7 +35,7 @@ import { EMPTY_PILOTO_SCRIPT } from '../types/piloto'
 
 const SAVE_DELAY = 800
 /** Suba quando mudar a instrução da IA em personalizeScriptLine: força gerar as falas de novo. */
-const ADAPT_VERSION = 3
+const ADAPT_VERSION = 4
 
 type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error'
 
@@ -85,7 +90,7 @@ function Line({ text, notes }: { text: string; notes: Record<string, string> }) 
   const [main, tip] = text.split('#')
   return (
     <>
-      <span>{renderFilled(main, notes)}</span>
+      <span className="whitespace-pre-wrap">{renderFilled(main, notes)}</span>
       {tip ? (
         <span className="mt-1 block text-sm" style={{ color: 'var(--rt-muted)' }}>
           {tip}
@@ -165,30 +170,64 @@ function Card({
             <p className="mb-1.5 text-xs font-semibold" style={{ color: 'var(--rt-faint)' }}>
               1 · Fale
             </p>
-            <p className="border-l-[3px] pl-4 text-[22px] leading-[1.45] text-foreground" style={{ borderColor: 'rgb(var(--color-accent-rgb))' }}>
+            <p className="border-l-[3px] pl-4 text-[22px] leading-[1.45] text-foreground" style={{ borderColor: 'var(--rt-rule)' }}>
               {renderLine(card, 'fale', card.steps.fale)}
             </p>
+            {card.steps.etapas ? (
+              <ul className="mt-3 grid gap-3">
+                {card.steps.etapas.map(([label, text]) => (
+                  <li
+                    key={label}
+                    className="border-l-[3px] pl-4 text-[20px] leading-[1.45] text-foreground"
+                    style={{ borderColor: 'var(--rt-rule)' }}
+                  >
+                    <span className="block text-[13px] font-semibold" style={{ color: 'var(--rt-faint)' }}>
+                      {label}
+                    </span>
+                    <Line text={text} notes={notes} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
-          <div>
-            <p className="mb-1.5 text-xs font-semibold" style={{ color: 'var(--rt-faint)' }}>
-              2 · Mostre o slide
-            </p>
-            <ul className="grid gap-1.5 pl-4">
-              {card.steps.mostre.map((item) => (
-                <li key={item} className="text-[17px] leading-[1.45]" style={{ color: 'var(--rt-muted)' }}>
-                  <Line text={item} notes={notes} />
-                </li>
-              ))}
-            </ul>
-          </div>
+          {card.steps.mostre.length ? (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold" style={{ color: 'var(--rt-faint)' }}>
+                2 · Mostre o slide
+              </p>
+              <ul className="grid gap-1.5 pl-4">
+                {card.steps.mostre.map((item) => (
+                  <li key={item} className="text-[17px] leading-[1.45]" style={{ color: 'var(--rt-muted)' }}>
+                    <Line text={item} notes={notes} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {card.steps.pergunte ? (
             <div>
               <p className="mb-1.5 text-xs font-semibold" style={{ color: 'var(--rt-faint)' }}>
-                3 · Pergunte
+                {card.steps.mostre.length ? 3 : 2} · Pergunte
               </p>
-              <p className="border-l-[3px] pl-4 text-[22px] leading-[1.45] text-foreground" style={{ borderColor: 'rgb(var(--color-accent-rgb))' }}>
-                <Line text={card.steps.pergunte} notes={notes} />
-              </p>
+              <div className="grid gap-3">
+                {questionList(card.steps.pergunte).map((line) => {
+                  const parsed = parseKeyQuestion(line)
+                  return (
+                    <p
+                      key={line}
+                      className="border-l-[3px] pl-4 text-[22px] leading-[1.45] text-foreground"
+                      style={{ borderColor: parsed.key ? keyBorder(parsed.key) : 'rgb(var(--color-accent-rgb))' }}
+                    >
+                      <Line text={parsed.text} notes={notes} />
+                      {parsed.key ? (
+                        <span className="block">
+                          <KeyTag captureKey={parsed.key} />
+                        </span>
+                      ) : null}
+                    </p>
+                  )
+                })}
+              </div>
             </div>
           ) : null}
         </div>
@@ -272,6 +311,7 @@ export default function PilotoRoteiro() {
   const [leadName, setLeadName] = useState('')
   const [feeRate, setFeeRate] = useState<number | null>(null)
   const [pricing, setPricing] = useState<PilotoPricing>(DEFAULT_PILOTO_PRICING)
+  const [deck, setDeck] = useState<ScriptDeck | undefined>(undefined)
   const [script, setScript] = useState<PilotoScript>(EMPTY_PILOTO_SCRIPT)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [polishing, setPolishing] = useState<string[]>([])
@@ -292,25 +332,49 @@ export default function PilotoRoteiro() {
   latest.current = script
 
   const prices = useMemo((): ScriptPrices => {
-    const installments = calcInstallments(pricing.agencyDealCents, feeRate ?? DEFAULT_INSTALLMENT_FEE_RATE)
-    const savingsCents = dealSavingsCents(pricing)
-    // Dia 1 começa depois do briefing (até 24 h): o dia 16 cai por volta de hoje + 16.
+    // Passa de novo pela normalização: estado antigo (sem o preço do Completo) não vira "R$ NaN" no roteiro.
+    const safe = normalizePilotoPricing(pricing)
+    const installments = calcInstallments(safe.agencyDealCents, feeRate ?? DEFAULT_INSTALLMENT_FEE_RATE)
+    const completoInstallments = calcInstallments(safe.completoDealCents, feeRate ?? DEFAULT_INSTALLMENT_FEE_RATE)
+    const savingsCents = dealSavingsCents(safe)
+    const completoSavings = completoSavingsCents(safe)
+    // Dia 1 começa quando ele devolve o formulário (até 24 h): o dia 16 cai por volta de hoje + 16.
     const adsStart = new Date()
     adsStart.setDate(adsStart.getDate() + 16)
     return {
-      list: brl(pricing.agencyListCents),
-      deal: brl(pricing.agencyDealCents),
-      adBudget: brl(pricing.adBudgetPerChannelCents),
+      list: brl(safe.agencyListCents),
+      deal: brl(safe.agencyDealCents),
+      completoList: brl(safe.completoListCents),
+      completoDeal: brl(safe.completoDealCents),
+      completoInstallment: brl(completoInstallments.installmentCents),
+      completoSavings: completoSavings > 0 ? brl(completoSavings) : '',
+      adBudget: brl(safe.adBudgetPerChannelCents),
       installment: brl(installments.installmentCents),
       installments: INSTALLMENT_COUNT,
       savings: savingsCents > 0 ? brl(savingsCents) : '',
-      savingsCoversAds: savingsCents > 0 && savingsCents >= pricing.adBudgetPerChannelCents * 2,
+      savingsCoversAds: completoSavings > 0 && completoSavings >= safe.adBudgetPerChannelCents * 2,
       adsStart: adsStart.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
     }
   }, [feeRate, pricing])
 
-  const cards = useMemo(() => buildScriptCards(prices), [prices])
-  const objections = useMemo(() => buildScriptObjections(prices), [prices])
+  /** Assinatura da versão falada de cada vídeo: mudou o ângulo no piloto (ou a instrução), gera de novo. */
+  const angleSig = (angle: { title: string; description: string }) =>
+    JSON.stringify([ADAPT_VERSION, ANGLE_SPOKEN_BRIEF, angle.title.trim(), angle.description.trim()])
+
+  // O roteiro usa a versão falada dos vídeos assim que a IA devolve; até lá, a descrição do slide.
+  const spokenDeck = useMemo((): ScriptDeck | undefined => {
+    if (!deck) return deck
+    return {
+      ...deck,
+      angles: deck.angles.map((angle, angleIndex) => {
+        const stored = script.adapted[`deck|angle|${angleIndex}`]
+        return stored && stored.sig === angleSig(angle) ? { ...angle, spoken: stored.text } : angle
+      }),
+    }
+  }, [deck, script.adapted])
+
+  const cards = useMemo(() => buildScriptCards(prices, spokenDeck), [prices, spokenDeck])
+  const objections = useMemo(() => buildScriptObjections(prices, deck), [prices, deck])
 
   const index = Math.min(script.cardIndex, cards.length - 1)
   const card = cards[index]
@@ -338,6 +402,12 @@ export default function PilotoRoteiro() {
         setLeadName(doc.input.leadCompanyName.trim())
         setFeeRate(doc.input.installmentFeeRate)
         setPricing(doc.input.pricing)
+        setDeck({
+          funnel: [doc.content.funnelTopLabel, doc.content.funnelMiddleLabel, doc.content.funnelBottomLabel],
+          angles: doc.content.adAngles,
+          niche: doc.input.leadNiche,
+          city: doc.input.leadCity,
+        })
         // A empresa já vem do piloto; o resto ele diz na reunião.
         const notesFromDoc = { ...doc.script.notes }
         if (!notesFromDoc.empresa && doc.input.leadCompanyName.trim()) {
@@ -399,7 +469,7 @@ export default function PilotoRoteiro() {
     const lines = cards.flatMap((c) => [
       ...(c.say ?? []),
       ...(c.beats ?? []).map(([, text]) => text),
-      ...(c.steps ? [c.steps.fale, ...c.steps.mostre, c.steps.pergunte ?? ''] : []),
+      ...(c.steps ? [c.steps.fale, ...c.steps.mostre, ...questionList(c.steps.pergunte)] : []),
     ])
     return lines
       .filter((line) => line.includes(token))
@@ -412,7 +482,7 @@ export default function PilotoRoteiro() {
     const lines = [
       ...(target.say ?? []),
       ...(target.beats ?? []).map(([, text]) => text),
-      ...(target.steps ? [target.steps.fale, ...target.steps.mostre, target.steps.pergunte ?? ''] : []),
+      ...(target.steps ? [target.steps.fale, ...target.steps.mostre, ...questionList(target.steps.pergunte)] : []),
     ]
     return lines.some((line) => line.includes(token))
   }
@@ -531,6 +601,61 @@ export default function PilotoRoteiro() {
     // as funções de apoio só leem estado/refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [script.notes, script.settled, loading, cards])
+
+  // Reescreve a descrição de cada vídeo em tom de conversa, uma vez por piloto (e de novo se o ângulo mudar).
+  useEffect(() => {
+    if (loading || !deck) return
+    const ordinals = ['primeiro', 'segundo', 'terceiro']
+    deck.angles.slice(0, 3).forEach((angle, angleIndex) => {
+      const id = `deck|angle|${angleIndex}`
+      const sig = angleSig(angle)
+      if (!angle.description.trim() || latest.current.adapted[id]?.sig === sig || adaptInFlight.current.has(id + sig)) return
+      adaptInFlight.current.add(id + sig)
+      void personalizeScriptLine({
+        brief: `${ANGLE_SPOKEN_BRIEF} Este é o ${ordinals[angleIndex]} vídeo.`,
+        generic: `${angle.title.trim()}: ${angle.description.trim()}`,
+        answers: [],
+        company: (latest.current.notes.empresa ?? '').trim() || leadName,
+        name: '',
+      })
+        .then((text) => {
+          if (!text) return
+          setScript((current) => ({ ...current, adapted: { ...current.adapted, [id]: { sig, text } } }))
+        })
+        .finally(() => {
+          adaptInFlight.current.delete(id + sig)
+        })
+    })
+    // angleSig e leadName são estáveis para o mesmo piloto
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deck, loading])
+
+  /** Fala personalizada pronta e não trocada pela genérica; senão null. A janela flutuante usa a mesma. */
+  function adaptedLine(c: ScriptCard, target: number | 'fale'): string | null {
+    const adapt = c.adapt?.find((item) => item.target === target)
+    if (!adapt) return null
+    const id = adaptId(c, target)
+    const sig = adaptSignature(adapt)
+    const stored = script.adapted[id]
+    if (!sig || !stored || stored.sig !== sig || preferGeneric.includes(id)) return null
+    return stored.text
+  }
+
+  /** Mesma regra do aviso abaixo da fala na tela principal. */
+  function adaptState(c: ScriptCard, target: number | 'fale'): AdaptState {
+    const adapt = c.adapt?.find((item) => item.target === target)
+    if (!adapt) return null
+    const id = adaptId(c, target)
+    const sig = adaptSignature(adapt)
+    const stored = script.adapted[id]
+    if (sig && stored && stored.sig === sig) return preferGeneric.includes(id) ? 'generic' : 'ready'
+    return adapting.includes(id) ? 'adapting' : null
+  }
+
+  function toggleGeneric(c: ScriptCard, target: number | 'fale') {
+    const id = adaptId(c, target)
+    setPreferGeneric((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
+  }
 
   const renderLine: RenderLine = (c, target, text) => {
     const adapt = c.adapt?.find((item) => item.target === target)
@@ -963,11 +1088,18 @@ export default function PilotoRoteiro() {
           notes={notes}
           company={(notes.empresa ?? '').trim() || leadName}
           leadName={(notes.nome ?? '').trim()}
+          clock={clock}
+          timerRunning={Boolean(startedAt)}
+          onToggleTimer={() => setStartedAt(startedAt ? null : Date.now())}
           onPrev={goPrev}
           onNext={goNext}
           onClose={closeFloat}
           onNoteChange={setNote}
           onExtracted={applyExtractedNotes}
+          adaptedLine={adaptedLine}
+          adaptState={adaptState}
+          onToggleGeneric={toggleGeneric}
+          objections={objections}
         />
       ) : null}
     </div>
