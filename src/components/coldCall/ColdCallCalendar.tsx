@@ -730,9 +730,17 @@ export function ColdCallCalendar({
                 Reunião
               </p>
               <h2 className="mt-1 truncate text-lg font-semibold text-foreground">{selectedMeeting.company}</h2>
+              <p className="mt-1 text-sm text-foreground">
+                {selectedMeeting.responsavel ? (
+                  <>
+                    Com <span className="font-semibold">{selectedMeeting.responsavel}</span>
+                  </>
+                ) : (
+                  <span style={{ color: 'var(--rt-faint)' }}>Sem responsável anotado</span>
+                )}
+              </p>
               <p className="mt-1 text-sm tabular-nums" style={{ color: 'var(--rt-muted)' }}>
                 {spokenWhen(toLocalInput(selectedMeeting.start))}
-                {selectedMeeting.responsavel ? ` · ${selectedMeeting.responsavel}` : ''}
               </p>
               <p className="mt-2 text-sm text-foreground">{agendaEventTitle(selectedMeeting.notes)}</p>
             </div>
