@@ -508,7 +508,7 @@ export default function ColdCall() {
   }, [pilotos])
 
   useEffect(() => {
-    if (mode !== 'agenda') return
+    if (mode !== 'agenda' && mode !== 'call') return
     listPilotos()
       .then(setPilotos)
       .catch((error) => console.error('[ColdCall] pilotos refresh', error))
@@ -1105,6 +1105,12 @@ export default function ColdCall() {
                 onCallDue={() => {
                   if (dueCallback) resume(dueCallback)
                 }}
+                pilotoId={
+                  (call.notes.pilotoId ?? '').trim() ||
+                  pilotosByCompany.get(companyKeyOf(company)) ||
+                  null
+                }
+                onOpenPiloto={(pilotoId) => navigate(`/piloto/${pilotoId}`)}
                 onCreatePiloto={() =>
                   navigate('/piloto', {
                     state: {
@@ -1830,6 +1836,8 @@ function OutcomeCard({
   onNext,
   onCallAgain,
   onCallDue,
+  pilotoId,
+  onOpenPiloto,
   onCreatePiloto,
 }: {
   outcome: CallOutcome
@@ -1845,6 +1853,8 @@ function OutcomeCard({
   onNext: () => void
   onCallAgain: () => void
   onCallDue: () => void
+  pilotoId: string | null
+  onOpenPiloto: (pilotoId: string) => void
   onCreatePiloto: () => void
 }) {
   const info = CALL_OUTCOMES[outcome]
@@ -1940,18 +1950,31 @@ function OutcomeCard({
                     </div>
                   </div>
                 ) : null}
-                {step.action === 'piloto' && !checked ? (
+                {step.action === 'piloto' ? (
                   <div className="mt-2 pl-7">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onToggle(step.id)
-                        onCreatePiloto()
-                      }}
-                      className="whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:brightness-110"
-                    >
-                      Criar apresentação
-                    </button>
+                    {pilotoId ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!checked) onToggle(step.id)
+                          onOpenPiloto(pilotoId)
+                        }}
+                        className="whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:brightness-110"
+                      >
+                        Abrir apresentação
+                      </button>
+                    ) : !checked ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onToggle(step.id)
+                          onCreatePiloto()
+                        }}
+                        className="whitespace-nowrap rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition-colors hover:brightness-110"
+                      >
+                        Criar apresentação
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </li>
