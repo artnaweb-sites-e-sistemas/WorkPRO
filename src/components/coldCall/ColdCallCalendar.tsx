@@ -118,11 +118,13 @@ export function ColdCallCalendar({
   pilotosByCompany,
   onOpenCall,
   onOpenPresentation,
+  onCreatePresentation,
 }: {
   calls: ColdCall[]
   pilotosByCompany: Map<string, string>
   onOpenCall: (call: ColdCall) => void
   onOpenPresentation: (pilotoId: string) => void
+  onCreatePresentation: (call: ColdCall) => void
 }) {
   const [settings, setSettings] = useState<ColdCallCalendarSettings | null>(null)
   const [saving, setSaving] = useState(false)
@@ -645,16 +647,15 @@ export function ColdCallCalendar({
                             >
                               Apresentação
                             </button>
-                          ) : (
+                          ) : call ? (
                             <button
                               type="button"
-                              disabled
-                              title="Crie a apresentação na ligação agendada"
-                              className="w-full cursor-not-allowed rounded border border-border px-2 py-1 text-[11px] text-muted-foreground opacity-50"
+                              onClick={() => onCreatePresentation(call)}
+                              className="w-full rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-surface-2"
                             >
-                              Sem apresentação
+                              Criar apresentação
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     )
@@ -756,11 +757,10 @@ export function ColdCallCalendar({
                 ) : (
                   <button
                     type="button"
-                    disabled
-                    title="Crie a apresentação na ligação agendada"
-                    className="cursor-not-allowed rounded-md border border-border px-3 py-2 text-sm text-muted-foreground opacity-60"
+                    onClick={() => onCreatePresentation(selectedCall)}
+                    className="rounded-md border border-border px-3 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-surface-2"
                   >
-                    Sem apresentação
+                    Criar apresentação
                   </button>
                 )
               })()}

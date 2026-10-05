@@ -1066,6 +1066,18 @@ export default function ColdCall() {
             setMode('call')
           }}
           onOpenPresentation={(pilotoId) => navigate(`/piloto/${pilotoId}/apresentar`)}
+          onCreatePresentation={(item) =>
+            navigate('/piloto', {
+              state: {
+                coldCallId: item.id,
+                prefill: {
+                  leadCompanyName: (item.notes.empresa ?? '').trim(),
+                  leadNiche: (item.notes.nicho ?? '').trim(),
+                  leadCity: (item.notes.cidade ?? '').trim(),
+                },
+              },
+            })
+          }
         />
       ) : mode === 'callbacks' ? (
         <CallbackAgenda callbacks={allCallbacks} retries={retries} onOpen={openFromList} onResume={resumeFromList} />
