@@ -781,5 +781,12 @@ export const buildScriptObjections = (prices: ScriptPrices, deck?: ScriptDeck): 
       'Já tentei agência.',
       'Entendo, muita gente já passou por isso. E o que você acha que faltou daquela vez?#Escute e ligue ao que é diferente aqui. O relatório, o atendimento no WhatsApp ou a fundação antes dos anúncios.',
     ],
+    [
+      'Não tenho gente pra dar conta do serviço.',
+      'Entendo, {nome}, isso é mais comum do que parece. Me deixa te perguntar uma coisa. A sua agenda fica cheia o ano todo, ou tem mês bom e mês fraco? … ' +
+        '[Se tem mês fraco] Então o plano não é pra te encher no mês cheio. É pra não deixar o mês fraco vazio. E pensa comigo, hoje fica difícil contratar alguém porque você não sabe se vai ter serviço no mês que vem. Com procura todo mês, contratar deixa de ser um risco. ' +
+        'E quando a procura passa do que você consegue fazer, você escolhe os melhores serviços e consegue cobrar melhor. … ' +
+        '[Se vive lotado] Então, sendo sincero, o seu momento agora não é de trazer mais clientes, é de cobrar melhor pelo que você já faz. Se um dia você quiser crescer, eu tô aqui.#Não discuta, é uma limitação real. Se ele vive lotado o ano todo, não force a venda.',
+    ],
   ]
 }

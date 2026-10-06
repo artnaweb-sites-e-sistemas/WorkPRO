@@ -376,10 +376,6 @@ export const CALL_OBJECTIONS: [string, string][] = [
     'É sobre trazer mais {clientes} pra {empresa}, pelo Google e pelo WhatsApp. Por isso te pedi 30 segundos: posso te explicar?#Com o sim, siga pra "Por que liguei".',
   ],
   [
-    'Não tenho interesse.',
-    'Tranquilo, {responsavel}, sem problema. Obrigado pelo seu tempo, e bom trabalho aí!#Não insista: quem já fechou não reabre por telefone. Desligue com o botão vermelho.',
-  ],
-  [
     'Me manda no WhatsApp.',
     'O que eu mostro é feito pra {empresa}, não é um material pronto. Por isso os 20 minutos. O que acha, posso reservar um horário pra eu te apresentar uma proposta?#Se insistir, pegue o WhatsApp e marque o retorno.',
   ],
@@ -398,6 +394,12 @@ export const CALL_OBJECTIONS: [string, string][] = [
   [
     'Tá difícil, sem dinheiro agora.',
     'Faz sentido. É justamente por isso que o plano mostra em 45 dias onde vale colocar dinheiro, e onde não vale. Vale 20 minutos pra você ver?',
+  ],
+  [
+    'Não tenho gente pra dar conta do serviço.',
+    'Entendo, {responsavel}, isso é mais comum do que parece. Me deixa te perguntar uma coisa. A sua agenda fica cheia o ano todo, ou tem mês bom e mês fraco? … ' +
+      '[Se tem mês fraco] Então a ideia não é te encher no mês cheio, é não deixar o mês fraco vazio. E com serviço todo mês, contratar alguém deixa de ser um risco. Vale 20 minutos pra eu te mostrar? … ' +
+      '[Se vive lotado] Que bom! Então o seu momento é de cobrar melhor, não de trazer mais gente. Se um dia quiser crescer, me chama.#Não discuta, é uma limitação real. Se ele vive lotado, não force. Agradeça e encerre.',
   ],
   [
     'Como você conseguiu meu número?',
