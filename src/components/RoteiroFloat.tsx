@@ -89,7 +89,18 @@ export async function openRoteiroFloatWindow(): Promise<Window | null> {
 }
 
 function fillLine(text: string, notes: Record<string, string>): ReactNode[] {
-  return text.split(/(\{\w+\}|\[[^\]]+\])/g).map((piece, index) => {
+  return text.split(/(\{\{\w+\|[^}]*\}\}|\{\w+\}|\[[^\]]+\])/g).map((piece, index) => {
+    const mark = piece.match(/^\{\{(\w+)\|([^}]*)\}\}$/)
+    if (mark) {
+      const color = SCRIPT_CAPTURES[mark[1]]?.color
+      return color ? (
+        <span key={index} className={`pill ${color}`}>
+          {mark[2]}
+        </span>
+      ) : (
+        <span key={index}>{mark[2]}</span>
+      )
+    }
     const key = piece.match(/^\{(\w+)\}$/)?.[1]
     if (key) {
       const capture = SCRIPT_CAPTURES[key]

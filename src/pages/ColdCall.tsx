@@ -975,19 +975,16 @@ export default function ColdCall() {
     <div className="rt min-h-screen bg-background pb-16">
       <style>{SCRIPT_THEME_CSS}</style>
 
-      <header className="sticky top-0 z-10 border-b border-border bg-background">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-stretch gap-x-8 px-6">
-          <div className="flex h-14 items-center gap-2">
+      <header className="sticky top-0 z-10 border-b-2 border-border bg-surface">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-end gap-x-8 px-6 pt-5">
+          <div className="pb-5">
             <Link
               to="/"
-              aria-label="Voltar para o início"
-              className="-ml-2 flex h-8 w-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-surface-2 hover:text-foreground"
+              className="text-xs font-bold uppercase tracking-tight text-muted-foreground transition-colors hover:text-accent"
             >
-              <svg className="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden>
-                <path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              ← Voltar
             </Link>
-            <p className="whitespace-nowrap text-base font-bold text-foreground">Cold call</p>
+            <p className="mt-1 whitespace-nowrap text-xl font-bold tracking-tight text-foreground">Cold call</p>
           </div>
           <nav className="order-last flex w-full gap-1 overflow-x-auto md:order-none md:w-auto" aria-label="Visão">
             {TABS.map((tab) => {
@@ -998,7 +995,7 @@ export default function ColdCall() {
                   type="button"
                   aria-current={active ? 'page' : undefined}
                   onClick={() => setMode(tab.value)}
-                  className={`flex h-11 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-sm transition-colors md:h-14 ${
+                  className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 pb-5 text-sm transition-colors ${
                     active ? 'border-accent font-semibold text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -1018,7 +1015,7 @@ export default function ColdCall() {
               )
             })}
           </nav>
-          <div className="ml-auto flex h-14 items-center gap-5">
+          <div className="ml-auto flex items-center gap-5 pb-5">
             <p className="hidden whitespace-nowrap text-sm tabular-nums text-muted-foreground lg:block">
               Hoje <strong className="ml-1 font-semibold text-foreground">{stats.total}</strong> {stats.total === 1 ? 'ligação' : 'ligações'}
               <span className="mx-2" style={{ color: 'var(--rt-faint)' }}>

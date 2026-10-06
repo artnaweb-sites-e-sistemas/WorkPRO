@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cn } from '../../lib/cn'
 import type { PilotoAiContent, PilotoInput } from '../../types/piloto'
 import { getPilotoSlides } from './index'
@@ -16,6 +16,8 @@ interface SlidePreviewProps {
   onIndexChange: (index: number) => void
   /** Quando false, omite o slide "Se fizer sentido continuar". */
   showContinuation?: boolean
+  /** Status à direita do contador (ex.: Salvo / Alterações não salvas). */
+  status?: ReactNode
 }
 
 function ChevronIcon({ direction }: { direction: 'left' | 'right' }) {
@@ -38,6 +40,7 @@ export function SlidePreview({
   index,
   onIndexChange,
   showContinuation = false,
+  status,
 }: SlidePreviewProps) {
   const frameRef = useRef<HTMLDivElement>(null)
   const thumbsRef = useRef<HTMLDivElement>(null)
@@ -119,9 +122,12 @@ export function SlidePreview({
             <ChevronIcon direction="right" />
           </button>
         </div>
-        {isContinuation ? (
-          <span className="text-xs text-muted-foreground">Slide de continuidade</span>
-        ) : null}
+        <div className="flex items-center gap-3">
+          {isContinuation ? (
+            <span className="text-xs text-muted-foreground">Slide de continuidade</span>
+          ) : null}
+          {status}
+        </div>
       </div>
 
       <div ref={thumbsRef} className="mt-2 flex gap-2 overflow-x-auto pb-2">

@@ -16,6 +16,7 @@ REGRAS:
 - MÁXIMO 30 palavras.
 - Antes de responder, leia a frase em voz alta mentalmente: se algum trecho soar estranho ou sem concordância, reescreva.
 - Nunca prometa resultado, número, prazo ou valor que não esteja na fala genérica.
+- MARCAÇÃO: quando a fala usar uma resposta do cliente, marque o trecho que veio dela assim {{chave|trecho}}, com a chave que aparece ao lado da resposta. Ex.: {{hoje|as indicações}}. Marque só esse trecho, uma vez por resposta usada. Nome do cliente e empresa não são marcados.
 - Nunca use dois-pontos. Em conversa falada eles soam como leitura: troque por ponto, vírgula ou uma pergunta.
 - Sem aspas, sem emoji, sem markdown.`
 
@@ -29,7 +30,7 @@ const SCHEMA = {
 export async function personalizeScriptLine(params: {
   brief: string
   generic: string
-  answers: { label: string; value: string }[]
+  answers: { key?: string; label: string; value: string }[]
   company: string
   name: string
 }): Promise<string> {
@@ -39,7 +40,7 @@ export async function personalizeScriptLine(params: {
     params.name ? `NOME DO CLIENTE: ${params.name}` : '',
     params.company ? `EMPRESA: ${params.company}` : '',
     'O QUE O CLIENTE RESPONDEU:',
-    ...params.answers.map((answer) => `- ${answer.label}: ${answer.value}`),
+    ...params.answers.map((answer) => `- ${answer.label}${answer.key ? ` (chave ${answer.key})` : ''}: ${answer.value}`),
   ]
     .filter(Boolean)
     .join('\n')
@@ -50,7 +51,7 @@ export async function personalizeScriptLine(params: {
     const parsed = JSON.parse(result.response.text()) as { text?: unknown }
     const text = typeof parsed.text === 'string' ? parsed.text.trim() : ''
     // Passou muito do limite = fugiu da regra; fica a genérica.
-    return text.split(/\s+/).length > 40 ? '' : text
+    return text.replace(/\{\{\w+\|([^}]*)\}\}/g, '$1').split(/\s+/).length > 40 ? '' : text
   } catch (error) {
     console.error('[personalizeScriptLine]', error)
     return ''

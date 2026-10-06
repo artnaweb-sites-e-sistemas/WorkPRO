@@ -30,6 +30,8 @@ export interface PilotoInput {
   leadCity: string
   leadOffer: string
   ticketCents: number
+  /** o cliente do lead paga todo mês (mensalidade): o roteiro pergunta quantos meses ele fica e mostra o acúmulo */
+  recurringService: boolean
 
   hasWebsite: SituationAnswer
   runsAds: SituationAnswer
@@ -252,6 +254,7 @@ export function normalizePilotoInput(raw: unknown): PilotoInput {
     leadCity: asText(record.leadCity),
     leadOffer: asText(record.leadOffer),
     ticketCents: ticketCents > 0 ? Math.round(ticketCents) : 0,
+    recurringService: record.recurringService === true,
     hasWebsite: normalizeSituationAnswer(record.hasWebsite),
     runsAds: normalizeSituationAnswer(record.runsAds),
     whatsappOrganized: normalizeSituationAnswer(record.whatsappOrganized),

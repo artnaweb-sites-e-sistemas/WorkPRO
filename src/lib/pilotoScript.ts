@@ -44,6 +44,8 @@ export const SCRIPT_CAPTURES: Record<string, ScriptCapture> = {
   numHoje: { label: 'Clientes novos por mês hoje', color: 'c6', hint: 'Ex.: 8', short: true, listen: 'Pergunta: quantos clientes novos por mês ele tem hoje. Só o número.' },
   numMeta: { label: 'Clientes novos por mês que ele quer', color: 'c6', hint: 'Ex.: 25', short: true, listen: 'Pergunta: quantos clientes novos por mês ele gostaria de ter. Só o número.' },
   custo: { label: 'O que acontece se nada mudar', color: 'c7', hint: 'Ex.: vou ter que fechar a turma da manhã', polish: true, listen: 'Pergunta: imaginando daqui a seis meses com o movimento igual ao de hoje, o que acontece com o negócio dele. Anote a consequência que ele disser.' },
+  ticket: { label: 'Quanto um cliente paga', color: 'c8', hint: 'Ex.: uns R$ 300', short: true, listen: 'Pergunta: quanto um cliente costuma pagar, em média (se for mensalidade, quanto por mês). Anote só o valor em reais, do jeito que ele falar (ex.: "uns 300", "R$ 1.200", "2 mil"). Se ele tiver vários serviços ou pacotes, anote o que mais vende.' },
+  meses: { label: 'Quantos meses um cliente fica', color: 'c8', hint: 'Ex.: uns 8', short: true, listen: 'Pergunta: quantos meses um cliente costuma ficar com ele. Anote só o número de meses (ex.: "8", "1 ano"). Vazio se ele não souber.' },
   virada: { label: 'O que mais chamou atenção', color: 'c9', hint: 'Ex.: o WhatsApp responder sozinho', polish: true, listen: 'Pergunta: o que mais chamou atenção no plano. Anote a parte que ele citar.' },
 }
 
@@ -132,6 +134,44 @@ export interface ScriptDeck {
   /** nicho e cidade do lead, para a fala da vaga por ramo no investimento */
   niche: string
   city: string
+  /** o cliente do lead paga todo mês (marcado no cadastro do piloto) */
+  recurring: boolean
+  /** quantos clientes novos pagam o Completo (trabalho + anúncios), pelo que um cliente deixa; sem valor, não entra */
+  payback?: {
+    /** o que o cliente paga ("R$ 280"; por mês, quando recorrente) */
+    ticket: string
+    clients: number
+    hasMeta: boolean
+    /**
+     * Serviço recorrente: quanto cada cliente deixa no tempo que fica (`assumed` = ele não disse os meses)
+     * e o acúmulo, entrando `clients` por mês, depois de `stackMonths` meses.
+     */
+    monthly?: { months: number; assumed: boolean; lifetime: string; stackMonths: number; stackClients: number; stackRevenue: string }
+  }
+}
+
+/** Meses que um cliente fica, se for mensal: padrão quando ele não sabe dizer. */
+export const DEFAULT_CLIENT_MONTHS = 6
+
+/** Lê quantos meses ("8", "uns 10 meses", "1 ano", "um ano e meio" vira 18). Devolve 0 se não der pra ler. */
+export function parseMonths(text: string): number {
+  const lower = text.toLowerCase()
+  const number = Number(lower.match(/\d+/)?.[0] ?? (/\bum ano\b/.test(lower) ? 1 : 0))
+  if (!number) return 0
+  const years = /\bano/.test(lower)
+  const half = /e meio/.test(lower) ? 6 : 0
+  return years ? number * 12 + half : number
+}
+
+/** Lê um valor em reais do jeito que se fala ("uns 300", "R$ 1.200", "2 mil", "250,50"). Devolve centavos, ou 0. */
+export function parseMoneyCents(text: string): number {
+  const match = text
+    .toLowerCase()
+    .match(/(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?\s*(mil\b|k\b)?/)
+  if (!match) return 0
+  const reais = Number(match[1].replace(/\./g, '')) + (match[2] ? Number(match[2].padEnd(2, '0')) / 100 : 0)
+  const total = match[3] ? reais * 1000 : reais
+  return Number.isFinite(total) && total > 0 ? Math.round(total * 100) : 0
 }
 
 /** "de odontologia" / "em Ilhabela", com volta genérica quando o piloto não tem o dado. */
@@ -304,9 +344,17 @@ export function buildScriptCards(prices: ScriptPrices, deck?: ScriptDeck): Scrip
         '@numMeta Maravilha! Estou quase terminando as perguntas, {nome}.\nSe tudo desse certo do jeito que você quer, quantos clientes novos por mês você gostaria de ter?',
         '@numHoje E hoje, quantos são, mais ou menos?',
         'Então de {numHoje} pra {numMeta}. É uma diferença considerável, né?',
+        ...(deck?.recurring
+          ? [
+              '@ticket E me fala uma coisa, quanto um cliente seu costuma pagar por mês, mais ou menos?#Se ele tiver vários planos, peça o que mais vende. Esse valor volta no investimento.',
+              '@meses E um cliente costuma ficar quantos meses com você?#Se ele não souber, a conta usa 6 meses.',
+            ]
+          : [
+              '@ticket E me fala uma coisa, um cliente seu costuma pagar quanto, mais ou menos?#Se ele tiver vários serviços ou pacotes, peça o que mais vende. Esse valor volta no investimento.',
+            ]),
       ],
-      expect: 'Os dois números.',
-      capture: ['numHoje', 'numMeta'],
+      expect: 'Os dois números e quanto vale um cliente novo.',
+      capture: ['numHoje', 'numMeta', 'ticket', ...(deck?.recurring ? ['meses'] : [])],
       adapt: [
         {
           target: 0,
@@ -611,9 +659,39 @@ export function buildScriptCards(prices: ScriptPrices, deck?: ScriptDeck): Scrip
             'Pagamento',
             `Dá pra pagar à vista no Pix, ou parcelar em ${prices.installments}x no cartão. No Completo, fica ${prices.installments}x de ${prices.completoInstallment}.#Se ele perguntar de um canal só: ${prices.installments}x de ${prices.installment}.`,
           ],
+          ...(deck?.payback
+            ? ([
+                [
+                  'A conta',
+                  'E pensa comigo, {nome}. ' +
+                    (deck.payback.monthly
+                      ? `Se cada cliente paga uns {{ticket|${deck.payback.ticket}}} por mês e fica${deck.payback.monthly.assumed ? ', digamos,' : ''} uns ` +
+                        (deck.payback.monthly.assumed ? `${deck.payback.monthly.months} meses` : `{{meses|${deck.payback.monthly.months} meses}}`) +
+                        ` com você, cada cliente novo deixa uns ${deck.payback.monthly.lifetime}. Então `
+                      : `Se um cliente novo paga uns {{ticket|${deck.payback.ticket}}} com você, `) +
+                    (deck.payback.clients === 1
+                      ? 'basta 1 cliente novo pra pagar tudo, o nosso trabalho e os anúncios.'
+                      : `bastam ${deck.payback.clients} clientes novos pra pagar tudo, o nosso trabalho e os anúncios.`) +
+                    (!deck.payback.monthly && deck.payback.hasMeta ? ' E você me disse que quer chegar em {numMeta} por mês.' : '') +
+                    (deck.payback.monthly?.assumed
+                      ? '#Ele não disse quantos meses um cliente fica, então a conta usa 6. Fale como estimativa. Não prometa resultado.'
+                      : '#Não prometa resultado. Mostre só a conta e deixe ele tirar a conclusão.'),
+                ],
+                ...(deck.payback.monthly && deck.payback.monthly.stackMonths >= 2
+                  ? ([
+                      [
+                        'Mês a mês',
+                        `E o melhor é que quem entra continua pagando. Se entrarem uns ${deck.payback.clients} clientes novos por mês, ` +
+                          `no ${deck.payback.monthly.stackMonths === 2 ? 'segundo' : 'terceiro'} mês você já tem ${deck.payback.monthly.stackClients} clientes a mais pagando, ` +
+                          `uns ${deck.payback.monthly.stackRevenue} entrando todo mês.#É a constância que faz a diferença. Fale como conta, não como promessa.`,
+                      ],
+                    ] as [string, string][])
+                  : []),
+              ] as [string, string][])
+            : []),
         ],
         mostre: [],
-        pergunte: `Fechando hoje, seus anúncios já começam por volta do dia ${prices.adsStart}. Como você prefere seguir?`,
+        pergunte: `Então, {nome}, se a gente fechar hoje, seus anúncios já começam a rodar por volta do dia ${prices.adsStart}. Como você prefere seguir?`,
       }),
       part: 2,
       goal: 'Fale o preço e espere. Sem se justificar.',
@@ -653,6 +731,25 @@ export function buildScriptCards(prices: ScriptPrices, deck?: ScriptDeck): Scrip
   ]
 }
 
+/** "Tá caro" com a conta dele: quantos clientes novos pagam tudo, pelo valor que ele disse na conversa. */
+function expensiveReply(payback: NonNullable<ScriptDeck['payback']>): string {
+  const many = payback.clients === 1 ? '1 cliente novo' : `${payback.clients} clientes novos`
+  const monthly = payback.monthly
+  const perClient = monthly
+    ? `Cada cliente seu paga uns {{ticket|${payback.ticket}}} por mês e fica${monthly.assumed ? ', digamos,' : ''} uns ` +
+      (monthly.assumed ? `${monthly.months} meses` : `{{meses|${monthly.months} meses}}`) +
+      `, então cada um deixa uns ${monthly.lifetime}. `
+    : `Cada cliente novo seu paga uns {{ticket|${payback.ticket}}}. `
+  return (
+    'Entendo, {nome}. Mas vamos fazer a conta junto. ' +
+    perClient +
+    `${payback.clients === 1 ? 'Basta' : 'Bastam'} ${many} pra pagar tudo, o nosso trabalho e os anúncios. ` +
+    (monthly ? 'E quem entra continua pagando depois disso. ' : '') +
+    `Você acha difícil conseguir ${many} com tudo isso funcionando?` +
+    '#Deixe ele responder. Se ele disser que não é difícil, volte pro "Como você prefere seguir?". Não ofereça desconto.'
+  )
+}
+
 export const buildScriptObjections = (prices: ScriptPrices, deck?: ScriptDeck): [string, string][] => {
   const place = leadPlace(deck)
   const hasDeal = Boolean(prices.savings || prices.completoSavings)
@@ -666,7 +763,7 @@ export const buildScriptObjections = (prices: ScriptPrices, deck?: ScriptDeck): 
     ],
     [
       'Tá caro.',
-      'Entendo. Mas caro comparado com o quê? Pensa comigo, quanto vale um cliente novo pra você? E quantos você acha que somem hoje no WhatsApp sem resposta? Se o plano recuperar só alguns desses, a conta já muda.#Deixe ele fazer a conta. Não ofereça desconto aqui.',
+      deck?.payback ? expensiveReply(deck.payback) : 'Entendo. Mas caro comparado com o quê? Pensa comigo, quanto vale um cliente novo pra você? E quantos você acha que somem hoje no WhatsApp sem resposta? Se o plano recuperar só alguns desses, a conta já muda.#Deixe ele fazer a conta. Não ofereça desconto aqui.',
     ],
     [
       'Falar com sócio / esposa.',

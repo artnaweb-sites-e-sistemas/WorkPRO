@@ -14,6 +14,7 @@ import {
   calcInstallments,
   completoSavingsCents,
   dealSavingsCents,
+  getPilotoPlans,
   normalizePilotoPricing,
 } from '../lib/pilotoPricing'
 import type { PilotoPricing } from '../lib/pilotoPricing'
@@ -24,6 +25,9 @@ import {
   buildScriptCards,
   buildScriptObjections,
   parseKeyQuestion,
+  DEFAULT_CLIENT_MONTHS,
+  parseMoneyCents,
+  parseMonths,
   questionList,
 } from '../lib/pilotoScript'
 import type { ScriptAdapt, ScriptCard, ScriptDeck, ScriptPrices } from '../lib/pilotoScript'
@@ -35,7 +39,7 @@ import { EMPTY_PILOTO_SCRIPT } from '../types/piloto'
 
 const SAVE_DELAY = 800
 /** Suba quando mudar a instrução da IA em personalizeScriptLine: força gerar as falas de novo. */
-const ADAPT_VERSION = 4
+const ADAPT_VERSION = 5
 
 type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error'
 
@@ -48,9 +52,20 @@ function FloatWindowIcon() {
   )
 }
 
-/** Troca {chave} pela anotação colorida e [pista] por texto apagado. */
+/** Troca {chave} pela anotação colorida, {{chave|trecho}} pelo trecho na cor do campo e [pista] por texto apagado. */
 function renderFilled(text: string, notes: Record<string, string>): ReactNode[] {
-  return text.split(/(\{\w+\}|\[[^\]]+\])/g).map((piece, index) => {
+  return text.split(/(\{\{\w+\|[^}]*\}\}|\{\w+\}|\[[^\]]+\])/g).map((piece, index) => {
+    const mark = piece.match(/^\{\{(\w+)\|([^}]*)\}\}$/)
+    if (mark) {
+      const color = SCRIPT_CAPTURES[mark[1]]?.color
+      return color ? (
+        <span key={index} className={`pill ${color}`}>
+          {mark[2]}
+        </span>
+      ) : (
+        <span key={index}>{mark[2]}</span>
+      )
+    }
     const key = piece.match(/^\{(\w+)\}$/)?.[1]
     if (key) {
       const capture = SCRIPT_CAPTURES[key]
@@ -362,19 +377,54 @@ export default function PilotoRoteiro() {
     JSON.stringify([ADAPT_VERSION, ANGLE_SPOKEN_BRIEF, angle.title.trim(), angle.description.trim()])
 
   // O roteiro usa a versão falada dos vídeos assim que a IA devolve; até lá, a descrição do slide.
+  // Quantos clientes novos pagam o Completo, pelo que ele disse na conversa.
+  // Serviço recorrente (cadastro): cada cliente deixa valor x meses que fica, e quem entra continua pagando mês a mês.
+  const payback = useMemo((): ScriptDeck['payback'] => {
+    const ticket = parseMoneyCents(script.notes.ticket ?? '')
+    const completo = getPilotoPlans(normalizePilotoPricing(pricing)).find((plan) => plan.id === 'completo')
+    if (!ticket || !completo?.totalCents) return undefined
+    if (!deck?.recurring) {
+      return {
+        ticket: brl(ticket),
+        clients: Math.ceil(completo.totalCents / ticket),
+        hasMeta: Boolean((script.notes.numMeta ?? '').trim()),
+      }
+    }
+    const told = parseMonths(script.notes.meses ?? '')
+    const months = told || DEFAULT_CLIENT_MONTHS
+    const clients = Math.ceil(completo.totalCents / (ticket * months))
+    // Acúmulo em 3 meses (ou 2, se o cliente fica só isso; com 1 mês não há acúmulo pra mostrar).
+    const stackMonths = Math.min(3, months)
+    const stackClients = clients * stackMonths
+    return {
+      ticket: brl(ticket),
+      clients,
+      hasMeta: Boolean((script.notes.numMeta ?? '').trim()),
+      monthly: {
+        months,
+        assumed: !told,
+        lifetime: brl(ticket * months),
+        stackMonths,
+        stackClients,
+        stackRevenue: brl(stackClients * ticket),
+      },
+    }
+  }, [script.notes.ticket, script.notes.meses, script.notes.numMeta, pricing, deck?.recurring])
+
   const spokenDeck = useMemo((): ScriptDeck | undefined => {
     if (!deck) return deck
     return {
       ...deck,
+      payback,
       angles: deck.angles.map((angle, angleIndex) => {
         const stored = script.adapted[`deck|angle|${angleIndex}`]
         return stored && stored.sig === angleSig(angle) ? { ...angle, spoken: stored.text } : angle
       }),
     }
-  }, [deck, script.adapted])
+  }, [deck, script.adapted, payback])
 
   const cards = useMemo(() => buildScriptCards(prices, spokenDeck), [prices, spokenDeck])
-  const objections = useMemo(() => buildScriptObjections(prices, deck), [prices, deck])
+  const objections = useMemo(() => buildScriptObjections(prices, spokenDeck), [prices, spokenDeck])
 
   const index = Math.min(script.cardIndex, cards.length - 1)
   const card = cards[index]
@@ -407,6 +457,7 @@ export default function PilotoRoteiro() {
           angles: doc.content.adAngles,
           niche: doc.input.leadNiche,
           city: doc.input.leadCity,
+          recurring: doc.input.recurringService,
         })
         // A empresa já vem do piloto; o resto ele diz na reunião.
         const notesFromDoc = { ...doc.script.notes }
@@ -573,7 +624,7 @@ export default function PilotoRoteiro() {
           adaptInFlight.current.add(id + sig)
           setAdapting((current) => [...current, id])
           const answers = [...adapt.from, ...(adapt.also ?? [])]
-            .map((key) => ({ label: SCRIPT_CAPTURES[key]?.label ?? key, value: readyAnswer(key, snapshot) ?? '' }))
+            .map((key) => ({ key, label: SCRIPT_CAPTURES[key]?.label ?? key, value: readyAnswer(key, snapshot) ?? '' }))
             .filter((answer) => answer.value)
           void personalizeScriptLine({
             brief: adapt.brief,
@@ -674,7 +725,7 @@ export default function PilotoRoteiro() {
     if (ready && !generic) {
       return (
         <>
-          <span>{stored.text}</span>
+          <span>{renderFilled(stored.text, notes)}</span>
           {tip ? <span className="mt-1 block text-sm" style={{ color: 'var(--rt-muted)' }}>{tip}</span> : null}
           {small(
             <>

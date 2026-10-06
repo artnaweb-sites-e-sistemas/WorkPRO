@@ -751,6 +751,17 @@ export default function NewPiloto() {
                   className="!min-h-0"
                   onChange={(event) => patchInput({ leadOffer: event.target.value })}
                 />
+                <div>
+                  <Switch
+                    label="O cliente dele paga todo mês"
+                    labelPosition="before"
+                    checked={input.recurringService}
+                    onChange={(checked) => patchInput({ recurringService: checked })}
+                  />
+                  <p className="mt-1 text-xs normal-case text-muted-foreground">
+                    Ligado, o roteiro pergunta quantos meses um cliente fica e mostra quanto entra a mais mês a mês.
+                  </p>
+                </div>
 
                 <div>
                   <p className="kinetic-label mb-1">Situação hoje</p>
@@ -1010,7 +1021,6 @@ export default function NewPiloto() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <SaveStatus state={saveState} />
                 {!pilotoId ? (
                   <Button variant="ghost" size="sm" loading={creating} disabled={busy} onClick={() => void handleCreateDraft()}>
                     Salvar
@@ -1043,20 +1053,26 @@ export default function NewPiloto() {
                 index={slideIndex}
                 onIndexChange={setSlideIndex}
                 showContinuation={showContinuation}
+                status={<SaveStatus state={saveState} />}
               />
             ) : (
-              <ProposalPdfPagedPreview
-                document={
-                  <PilotoPdfDocument
-                    input={input}
-                    content={content}
-                    showContinuation={showContinuation}
-                  />
-                }
-                pageAspect="810 / 1440"
-                revision={PILOTO_PDF_LAYOUT_REVISION}
-                sourceKey={JSON.stringify({ input, content, showContinuation })}
-              />
+              <>
+                <ProposalPdfPagedPreview
+                  document={
+                    <PilotoPdfDocument
+                      input={input}
+                      content={content}
+                      showContinuation={showContinuation}
+                    />
+                  }
+                  pageAspect="810 / 1440"
+                  revision={PILOTO_PDF_LAYOUT_REVISION}
+                  sourceKey={JSON.stringify({ input, content, showContinuation })}
+                />
+                <div className="mt-3 flex justify-end">
+                  <SaveStatus state={saveState} />
+                </div>
+              </>
             )}
 
             {actionError ? (
